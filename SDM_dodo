@@ -1,0 +1,84 @@
+#load libraries (install them first if needed):
+library(readxl)
+library(maptools)
+library(raster)
+library(mgcv)
+library(PresenceAbsence)
+library(rgeos)
+
+raw_occ1 = data.frame(read_excel("occurrences_22Apr2020.xlsx", 1))
+raw_occ1$Genus<-as.factor(raw_occ1$Genus)
+raw_occ1$Latitude<-as.numeric(raw_occ1$Latitude)
+raw_occ1$Longitude<-as.numeric(raw_occ1$Longitude)
+levels(raw_occ1$Genus)#there is 1 Genus
+dim(raw_occ1)
+head(raw_occ1)
+names(raw_occ1)
+
+#To start with, we need a basic map of the study area
+data("wrld_simpl")#this dataset is within the library maptools
+plot(wrld_simpl)#this is a shapefile with all countries
+
+#Make a subset with relevant countries:
+st_area = subset(wrld_simpl, NAME %in% c("South Africa", "Lesotho", "Namibia","Botswana", "Zimbabwe", "Mozambique", "Malawi", "Kenya", "Angola", "United Republic of Tanzania", "Zambia"))#
+plot(st_area)
+
+#Now we need to download some climatic data
+#We will use Worldclim, which is easy to download directly in R: 
+current = raster::getData("worldclim",var="bio",res=2.5)
+class(current)#this is a raster stack
+dim(current)#it has 19 rasters, each one of dimensions 900 x 2160
+names(current)
+
+#Worldclim data is described here: https://worldclim.org/data/bioclim.html
+#We can plot individual variables to see how they look. 
+#To start, we will use annual mean temperature (bio1), temperature seasonality (bio4)
+#annual precipitation (bio12) and precipitation seasonality (bio15)
+# (later on, we will select variables using a statistical method)
+windows (h=4000, w=6000)
+par(mfrow=c(2,2))
+plot(current[["bio1"]], main="Mean Temperature x 10")
+plot(current[["bio4"]], main="Temperature Seasonality")
+plot(current[["bio12"]], main="Annual Precipitation")
+plot(current[["bio15"]], main="Precipitation Seasonality")
+#If you want you can save these maps as pdf or tif or whatever other image format:
+savePlot ("CurrentClimate.pdf", type="pdf")
+
+#We should cut the climate layers to correspond to our study area:
+current = crop (current, st_area)#crop reduces the extent, but does not follow the contour of the shapefile
+current = mask (current, st_area)#this should finish the job
+#look at the maps again:
+windows (h=4000, w=6000)
+par(mfrow=c(2,2))#we'll need to adjust the margins so that the legends show up properly
+plot(current[["bio1"]], main="Mean Temperature x 10")
+plot(current[["bio4"]], main="Temperature Seasonality")
+plot(current[["bio12"]], main="Annual Precipitation")
+plot(current[["bio15"]], main="Precipitation Seasonality")
+#If you want you can save these maps as pdf or tif or whatever other image format:
+savePlot ("CurrentClimate.pdf", type="pdf")
+
+#Create a column of presence-absence for each of the 4 relevant subclades: "R. bechuanae", 
+#"R. intermedius", "R. pumilio", "R.d. chakae", "R.d. dilectus" 
+raw_occ1$Rhabdomys = 0 #this will create the column with all lines = 0
+raw_occ1$Rhabdomys [raw_occ1$Genus=="Rhabdomys"] = 1 #this will change the value for the lines for which species = Rhabdomys
+
+#Before modelling, we can add the occurrence points in our map of the study area:
+#For this we will need the occurrence data as a point spatial layer:
+occ3=raw_occ1
+dim(occ3)
+head(occ3)
+tail(occ3)
+
+which(is.na(occ3))
+occ3<-na.omit(occ3)
+dim(occ3)
+raw_occ1<-na.omit(raw_occ1)
+coordinates(occ3)=~Longitude+Latitude
+raw_occ1$IdCell = cellFromXY(current[[1]], occ3)
+projection(occ3) <- CRS('+proj=longlat +datum=WGS84')
+
+windows (h=4000, w=6000)
+plot(current$bio1, ylim=c(-35, 10), breaks=c(0,0.25,0.5,0.75,1), col = c("red", "orange","yellow","chartreuse1","light blue","dark blue"))
+plot(st_area, add=TRUE)
+plot(subset(occ3, Rhabdomys==1), pch=16, col="black", bg="white", add=TRUE)
+legend("topleft", legend = "Rhabdomys",pch=16, col="black", bg="white", cex =1.3)
