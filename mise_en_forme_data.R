@@ -1,11 +1,13 @@
 library(spocc)
+library(scales)
 library(robis)
 library(sp)
 library(rgdal)
 library(maptools)
 library(raster)
 library(SDMTools)
-# les librairies suivantes ne sont pas forcemment utiles, ‡ voir
+#library(openxlsx)
+# les librairies suivantes ne sont pas forcemment utiles, √† voir
 library(gridExtra)
 library(biomod2) 
 library(PresenceAbsence)
@@ -23,7 +25,7 @@ setwd("C:/Users/serva/Google Drive/1-Partage Ordis/M2/Machine_learning/Projet")
 
 
 # Download occurrences from OBIS  
-# on garde seulement les colonnes coordonnÈes et date d'observation (pour pouvoir rÈcupÈrer les donnÈes environnementales correspondantes)
+# on garde seulement les colonnes coordonn√©es et date d'observation (pour pouvoir r√©cup√©rer les donn√©es environnementales correspondantes)
 
 OCC <- robis::occurrence(scientificname = "Chaetodon rainfordi" ) # Download, be carefull of the firewall
 if (dim(OCC)[1] > 0) {
@@ -31,21 +33,21 @@ if (dim(OCC)[1] > 0) {
   names(OCC) <- c("longitude", "latitude", "year")
 }
 
-# enlever les lignes o˘ l'on n'a pas de date d'observation, ou si le poisson a ÈtÈ observÈ avant 1985
+# enlever les lignes o√π l'on n'a pas de date d'observation, ou si le poisson a √©t√© observ√© avant 1985
 OCC$year <- na.omit(OCC$year)
 OCC <- OCC[-which(OCC$year<1985),]
 
-# enlever les poissons qui sont en dehors de notre environnement d'Ètude et ceux qui ont longitudes et latitudes =0
-# pas possible encore car on a besoin de manipuler ces jeux de donnÈes avant. 
+# enlever les poissons qui sont en dehors de notre environnement d'√©tude et ceux qui ont longitudes et latitudes =0
+# pas possible encore car on a besoin de manipuler ces jeux de donn√©es avant. 
 # zero.coord <- which(OCC$longitude == 0 & OCC$latitude == 0)
 # OCC <- OCC[ -which(OCC$longitude == 0 & OCC$latitude == 0), ]
 
-############# CrÈation du date frame complet occurence ##############
+############# Cr√©ation du date frame complet occurence ##############
 
-# ‡ partir des longitudes et latitudes des occurences, rÈcupÈrer les donnÈes environnementales correspondantes et les ajouter au tableau
+# √† partir des longitudes et latitudes des occurences, r√©cup√©rer les donn√©es environnementales correspondantes et les ajouter au tableau
 
-# associer pour chaque annÈe la decade correspondante pour pouvoir rÈcupÈrer tempÈrature et salinitÈ
-# il y a un problËme -> le rÈgler
+# associer pour chaque ann√©e la decade correspondante pour pouvoir r√©cup√©rer temp√©rature et salinit√©
+# il y a un probl√®me -> le r√©gler
 OCC@data$decade <- ifelse(OCC@data$year >= 1985 & OCC@data$year <= 1994, 1, OCC@data$decade)
 OCC@data$decade <- ifelse(OCC@data$year >= 1995 & OCC@data$year <= 2004, 2, OCC@data$decade)
 OCC@data$decade <- ifelse(OCC@data$year >= 2004 & OCC@data$year <= 2012, 3, OCC@data$decade)
@@ -56,9 +58,9 @@ OCC@data$Salinity <- NA
 
 
 #Importing climatic data for each time period
-# voir si on n'importe pas le jeu de donnÈes directement de NOAH.
-# Ici on a donnÈes o˘ les tempÈratures sont triÈes en 3 catÈgories en fonction de la profondeur dans la mer. Est-ce utile ici ? faire nous mÍme les profondeurs ? voir comment c'est prÈsentÈ sur NOAH
-# se servir des profondeur d'observation des poissons (qu'on a jartÈ de notre jeu d'occurance) pour savoir exactement la tempÈ ‡ ce point d'obs
+# voir si on n'importe pas le jeu de donn√©es directement de NOAH.
+# Ici on a donn√©es o√π les temp√©ratures sont tri√©es en 3 cat√©gories en fonction de la profondeur dans la mer. Est-ce utile ici ? faire nous m√™me les profondeurs ? voir comment c'est pr√©sent√© sur NOAH
+# se servir des profondeur d'observation des poissons (qu'on a jart√© de notre jeu d'occurance) pour savoir exactement la temp√© √† ce point d'obs
 
 download.file("https://pcsbox.univ-littoral.fr/d/b75dc393597748659c0f/files/?p=%2FEnvironmental%20data%2FClimatic_data%2FWOD%2FTemperature_1985_1994.RData&dl=1",
               destfile = "Temperature_1985_1994.RData", mode = "wb")
@@ -84,16 +86,222 @@ Salinity1 <- brick(get(load("Salinity_1985_1994.RData")))
 Salinity2 <- brick(get(load("Salinity_1995_2004.RData")))
 Salinity3 <- brick(get(load("Salinity_2005_2012.RData")))
 spplot(Salinity1,names.attr=c("Bottom","0-50m","0-200m"),main="Salinity 1985_1994")
-```
+
+# # Importing boudries coordinates 
+# c'√©tait pour piocher les pseudo absences mais finalement on n'a pas l'air d'en avoir besoin
+
+# boundaries <- readOGR( 
+#   dsn= "3dgbr_geomorph/shape", 
+#   layer = "qld_gbrwha_cscz",
+#   verbose=FALSE)
+# 
+# boundaries <- coordinates(boundaries)[[1]][[1]]
+# plot(boundaries,pch=20)
+# 
+# # ajouter la limite sud (√† latitude = -24.5)
+# for (longit in seq(152.042,154,by=0.001)){
+#   boundaries <- rbind(boundaries, c(longit,-24.5))
+# }
+# # ajouter la limite nord (√† latitude = ). A faire ou non ? √ßa d√©pend un peu de comment on d√©cide de faire notre tirage d'absence. 
+# 
+# plot(boundaries,pch=20)
+
+
+# Importing geomorphic features
+# a t'on besoin de r√©√©crire le chemin de t√©l√©chargement internet ? 
+
+my_spdf_cay <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_cay",
+  verbose=FALSE)
+cc = coordinates(my_spdf_cay)
+geomorphic_1 = data.frame(cc)
+colnames(geomorphic_1) = c("lon","lat")
+geomorphic_1$type = "cay"
+
+my_spdf_dryreef <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_dryreef",
+  verbose=FALSE)
+cc = coordinates(my_spdf_dryreef)
+geomorphic_2 = data.frame(cc)
+colnames(geomorphic_2) = c("lon","lat")
+geomorphic_2$type = "dryreef"
+
+my_spdf_reef <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_reef",
+  verbose=FALSE)
+cc = coordinates(my_spdf_reef)
+geomorphic_3 = data.frame(cc)
+colnames(geomorphic_3) = c("lon","lat")
+geomorphic_3$type = "reef"
+
+my_spdf_ridge <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_ridge",
+  verbose=FALSE)
+cc = coordinates(my_spdf_ridge)
+geomorphic_4 = data.frame(cc)
+colnames(geomorphic_4) = c("lon","lat")
+geomorphic_4$type = "ridge"
+
+my_spdf_bank <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_bank",
+  verbose=FALSE)
+cc = coordinates(my_spdf_bank)
+geomorphic_5 = data.frame(cc)
+colnames(geomorphic_5) = c("lon","lat")
+geomorphic_5$type = "bank"
+
+my_spdf_knoll <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_knoll",
+  verbose=FALSE)
+cc = coordinates(my_spdf_knoll)
+geomorphic_6 = data.frame(cc)
+colnames(geomorphic_6) = c("lon","lat")
+geomorphic_6$type = "knoll"
+
+my_spdf_canyon <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_canyon",
+  verbose=FALSE)
+cc = coordinates(my_spdf_canyon)
+geomorphic_7 = data.frame(cc)
+colnames(geomorphic_7) = c("lon","lat")
+geomorphic_7$type = "canyon"
+
+my_spdf_seamount <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_seamount",
+  verbose=FALSE)
+cc = coordinates(my_spdf_seamount)
+geomorphic_8 = data.frame(cc)
+colnames(geomorphic_8) = c("lon","lat")
+geomorphic_8$type = "seamount"
+
+my_spdf_shelf <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "gbr_shelf",
+  verbose=FALSE)
+cc = coordinates(my_spdf_shelf)
+geomorphic_9 = data.frame(cc)
+colnames(geomorphic_9) = c("lon","lat")
+geomorphic_9$type = "shelf"
+
+my_spdf_slope <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_slope",
+  verbose=FALSE)
+cc = coordinates(my_spdf_slope)
+geomorphic_10 = data.frame(cc)
+colnames(geomorphic_10) = c("lon","lat")
+geomorphic_10$type = "slope"
+
+my_spdf_terrace <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_terrace",
+  verbose=FALSE)
+cc = coordinates(my_spdf_terrace)
+geomorphic_11 = data.frame(cc)
+colnames(geomorphic_11) = c("lon","lat")
+geomorphic_11$type = "terrace"
+
+my_spdf_plateau <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_plateau",
+  verbose=FALSE)
+cc = coordinates(my_spdf_plateau)
+geomorphic_12 = data.frame(cc)
+colnames(geomorphic_12) = c("lon","lat")
+geomorphic_12$type = "plateau"
+
+my_spdf_valley <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_valley",
+  verbose=FALSE)
+cc = coordinates(my_spdf_valley)
+geomorphic_13 = data.frame(cc)
+colnames(geomorphic_13) = c("lon","lat")
+geomorphic_13$type = "valley"
+
+my_spdf_trough <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_trough",
+  verbose=FALSE)
+cc = coordinates(my_spdf_trough)
+geomorphic_14 = data.frame(cc)
+colnames(geomorphic_14) = c("lon","lat")
+geomorphic_14$type = "trough"
+
+my_spdf_rise <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_rise",
+  verbose=FALSE)
+cc = coordinates(my_spdf_rise)
+geomorphic_15 = data.frame(cc)
+colnames(geomorphic_15) = c("lon","lat")
+geomorphic_15$type = "rise"
+
+my_spdf_basin <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_basin",
+  verbose=FALSE)
+cc = coordinates(my_spdf_basin)
+geomorphic_16 = data.frame(cc)
+colnames(geomorphic_16) = c("lon","lat")
+geomorphic_16$type = "basin"
+
+my_spdf_abyssalplain <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "coralsea_abyssalplain",
+  verbose=FALSE)
+cc = coordinates(my_spdf_abyssalplain)
+geomorphic_17 = data.frame(cc)
+colnames(geomorphic_17) = c("lon","lat")
+geomorphic_17$type = "abyssalplain"
+
+# Cr√©ation d'un fichier r√©portoriant toutes les informations g√©omorphiques
+geomorphic = rbind(geomorphic_1,geomorphic_2, geomorphic_3, geomorphic_4, geomorphic_5, geomorphic_6,
+                   geomorphic_7, geomorphic_8, geomorphic_9, geomorphic_10, geomorphic_11, geomorphic_12,
+                   geomorphic_13, geomorphic_14, geomorphic_15, geomorphic_16, geomorphic_17)
+
+# Exemple: on trace les coordonn√É¬©es des points du canyon
+#plot(coordinates(my_spdf_canyon),pch=20)
+# On ajoute le plateau
+#points(coordinates(my_spdf_plateau),pch=17,col="orange")
+# Faire un plot repr√©sentant tout le geomorphic ??
+# plot(coordinate(geomorphic))
+
+# SI on a un point de pr√É¬©sence (par ex lon = 144, lat = -11)
+lon_pr = 144
+lat_pr = -11
+d = sqrt((lon_pr-type_fond$lon)^2 + (lat_pr-type_fond$lat)^2) 
+i_dmin = which.min(d)
+lon_plus_proche = type_fond$lon[i_dmin]
+lat_plus_proche = type_fond$lat[i_dmin]
+fond_plus_proche = type_fond$type[i_dmin]
+
+
+d_temp = sqrt((lon_pr-Temperature@coords[,1])^2+ (lat_pr-Temperature@coords[,2])^2) 
+i_dtemp_min = which.min(d_temp)
+temp_fond_plus_proche = Temperature@Bottom_mean[i_dtemp_min]
+temp_vertical_plus_proche = Temperature@Vertical_mean[i_dtemp_min]
+temp_surf_plus_proche = Temperature@Surface_mean[i_dtemp_min]
 
 
 
-############# CrÈation du date frame complet absence ##############
 
-# dÈfinir autour de nos coordonnÈes d'occurence d'observation une zone dans laquelle il ne sera pas possible de piocher les absences
-# ‡ faire
 
-# piocher, au sein de notre zone d'Ètude (pour laquelle on a toutes les infos enviro), et en dehors de nos zones au voisinnage d'une prÈsence nouvellement dÈlimitÈes des coordonnÈes qui correspondront aux endroits d'"absence"
+
+############# Cr√©ation du date frame complet absence ##############
+
+# d√©finir autour de nos coordonn√©es d'occurence d'observation une zone dans laquelle il ne sera pas possible de piocher les absences
+# √† faire
+
+# piocher, au sein de notre zone d'√©tude (pour laquelle on a toutes les infos enviro), et en dehors de nos zones au voisinnage d'une pr√©sence nouvellement d√©limit√©es des coordonn√©es qui correspondront aux endroits d'"absence"
 # piocher autant d'absences que d'occurences
 
-# ajouter ensuite ‡ partir de ce tableau ABS les colonnes avec les variables enviro correspondantes comme on l'a fait pour OCC
+# ajouter ensuite √† partir de ce tableau ABS les colonnes avec les variables enviro correspondantes comme on l'a fait pour OCC
