@@ -277,20 +277,20 @@ geomorphic = rbind(geomorphic_1,geomorphic_2, geomorphic_3, geomorphic_4, geomor
 # plot(coordinate(geomorphic))
 
 # SI on a un point de prÃ©sence (par ex lon = 144, lat = -11)
-lon_pr = 144
-lat_pr = -11
-d = sqrt((lon_pr-type_fond$lon)^2 + (lat_pr-type_fond$lat)^2) 
-i_dmin = which.min(d)
-lon_plus_proche = type_fond$lon[i_dmin]
-lat_plus_proche = type_fond$lat[i_dmin]
-fond_plus_proche = type_fond$type[i_dmin]
+#lon_pr = 144
+#lat_pr = -11
+#d = sqrt((lon_pr-type_fond$lon)^2 + (lat_pr-type_fond$lat)^2) 
+#i_dmin = which.min(d)
+#lon_plus_proche = type_fond$lon[i_dmin]
+#lat_plus_proche = type_fond$lat[i_dmin]
+#fond_plus_proche = type_fond$type[i_dmin]
 
 
-d_temp = sqrt((lon_pr-Temperature@coords[,1])^2+ (lat_pr-Temperature@coords[,2])^2) 
-i_dtemp_min = which.min(d_temp)
-temp_fond_plus_proche = Temperature@Bottom_mean[i_dtemp_min]
-temp_vertical_plus_proche = Temperature@Vertical_mean[i_dtemp_min]
-temp_surf_plus_proche = Temperature@Surface_mean[i_dtemp_min]
+#d_temp = sqrt((lon_pr-Temperature@coords[,1])^2+ (lat_pr-Temperature@coords[,2])^2) 
+#i_dtemp_min = which.min(d_temp)
+#temp_fond_plus_proche = Temperature@Bottom_mean[i_dtemp_min]
+#temp_vertical_plus_proche = Temperature@Vertical_mean[i_dtemp_min]
+#temp_surf_plus_proche = Temperature@Surface_mean[i_dtemp_min]
 
 
 
