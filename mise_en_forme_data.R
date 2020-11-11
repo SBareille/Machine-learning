@@ -52,9 +52,7 @@ OCC$decade <- NA
 OCC$decade <- ifelse(OCC$year >= 1985 & OCC$year <= 1994, 1, OCC$decade)
 OCC$decade <- ifelse(OCC$year >= 1995 & OCC$year <= 2004, 2, OCC$decade)
 OCC$decade <- ifelse(OCC$year >= 2004 & OCC$year <= 2012, 3, OCC$decade)
-if(length(which(is.na(OCC$decade))) > 0){OCC = OCC[-which(is.na(OCC$decade)), ]}
-OCC$Temperature <- NA
-OCC$Salinity <- NA
+
 #blabla
 
 
@@ -325,15 +323,35 @@ OCCd3 <- OCC[which(OCC$decade == 3),]
 
 T1<-Sys.time()
 
-for (i in 1:nrow(OCC)){# pour chaque occurrence
+geomd1 <- geomorphic
+for (i in 1:nrow(OCCd1)){# pour chaque occurrence
   for(j in 1:nrow(geomorphic)){
-    if(sqrt((OCC[i,1] - geomorphic[j,1])^2 + (OCC[i,2] - geomorphic[j,2])^2) <= lim){# si les coordonnees utilisees plus tard pour generer les pseudo absences sont dans la zone, alors la donnee correspondante est supprimee
-      geomorphic <- geomorphic[ -j,]
+    if(sqrt((OCCd1[i,1] - geomorphic[j,1])^2 + (OCCd1[i,2] - geomorphic[j,2])^2) <= lim){# si les coordonnees utilisees plus tard pour generer les pseudo absences sont dans la zone, alors la donnee correspondante est supprimee
+      geomd1 <- geomd1[ -j,]
     }
   }
 }
+
 T2<-Sys.time()
 Tdiff= difftime(T2, T1) 
+
+geomd2 <- geomorphic
+for (i in 1:nrow(OCCd2)){
+  for(j in 1:nrow(geomorphic)){
+    if(sqrt((OCCd2[i,1] - geomorphic[j,1])^2 + (OCCd2[i,2] - geomorphic[j,2])^2) <= lim){     
+      geomd2 <- geomd2[ -j,]
+    }
+  }
+}
+
+geomd3 <- geomorphic
+for (i in 1:nrow(OCCd3)){
+  for(j in 1:nrow(geomorphic)){
+    if(sqrt((OCCd3[i,1] - geomorphic[j,1])^2 + (OCCd3[i,2] - geomorphic[j,2])^2) <= lim){      
+      geomd3 <- geomd1[ -j,]
+    }
+  }
+}
 
 par(mfrow = c(3,1))
 # plot separe pour chaque decennie (uniquement visualisation, soit pimper soit tej)
@@ -357,17 +375,45 @@ plot(x=OCCd3[,1], y=OCCd3[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
 # piocher, au sein de notre zone d'étude (pour laquelle on a toutes les infos enviro), et en dehors de nos zones au voisinage d'une présence nouvellement délimitées des coordonnées qui correspondront aux endroits d'"absence"
 # piocher autant d'absences que d'occurences
 
-abs <- geomorphic #initialisation du dossier contenant les pseudo absences
+ABSd1 <- geomd1 #initialisation du dossier contenant les pseudo absences pour la decennie 1 (puis pour chaque decennie apres)
 
-for (i in 1:nrow(abs)){ # on vide les lignes (on veut un tableau vide a remplir au fur et a mesure)
-  abs[i,] = NA
+for (i in 1:nrow(ABSd1)){ # on vide les lignes (on veut un tableau vide a remplir au fur et a mesure)
+  ABSd1[i,] = NA
 }
 set.seed(1)
-for (i in 1:nrow(OCC)){ # chaque ligne devient un tirage aleatoire parmi les donnees du sol de la Grande Barriere de corail
-  abs[i,] = geomorphic[sample(1:nrow(geomorphic)),]
+for (i in 1:nrow(OCCd1)){ # chaque ligne devient un tirage aleatoire parmi les donnees du sol de la Grande Barriere de corail
+  ABSd1[i,] = geomd1[sample(1:nrow(geomd1)),]
 }
-abs$espece <- NA
-abs$espece <- rep(0, nrow(abs)) # on associe a ce tirage des absences
+ABSd1$occurrence <- NA
+ABSd1$occurrence <- rep(0, nrow(ABSd1))
 
-#faudra alors y ajouter les donnees des autres variables avant de la rbind avec OCC, puis utiliser OCC pour machine learning
+
+ABSd2 <- geomd2
+
+for (i in 1:nrow(ABSd2)){
+  ABSd2[i,] = NA
+}
+set.seed(1)
+for (i in 1:nrow(OCCd2)){
+  ABSd2[i,] = geomd2[sample(1:nrow(geomd2)),]
+}
+ABSd2$occurrence <- NA
+ABSd2$occurrence <- rep(0, nrow(ABSd2))
+
+
+ABSd3 <- geomd3
+
+for (i in 1:nrow(ABSd3)){
+  ABSd3[i,] = NA
+}
+set.seed(1)
+for (i in 1:nrow(OCCd3)){
+  ABSd3[i,] = geomd2[sample(1:nrow(geomd3)),]
+}
+ABSd3$occurrence <- NA
+ABSd3$occurrence <- rep(0, nrow(ABSd3))
+
+ABS <- rbind(ABSd1, ABSd2, ABSd3)
+
+# faudra alors y ajouter les donnees des autres variables avant de la rbind avec OCC, puis utiliser OCC pour machine learning
 # ajouter ensuite à partir de ce tableau ABS les colonnes avec les variables enviro correspondantes comme on l'a fait pour OCC
