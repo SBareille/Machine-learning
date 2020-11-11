@@ -34,11 +34,11 @@ if (dim(OCC)[1] > 0) {
 }
 
 # enlever les lignes où l'on n'a pas de date d'observation, ou si le poisson a été observé avant 1985
-OCC$year <- na.omit(OCC$year)
+OCC <- na.omit(OCC, cols='year')
 OCC <- OCC[-which(OCC$year<1985),]
 
 # enlever les poissons qui sont en dehors de notre environnement d'étude et ceux qui ont longitudes et latitudes =0
-# pas possible encore car on a besoin de manipuler ces jeux de données avant. 
+# pas possible encore car on a besoin de manipuler ces jeux de données avant.
 # zero.coord <- which(OCC$longitude == 0 & OCC$latitude == 0)
 # OCC <- OCC[ -which(OCC$longitude == 0 & OCC$latitude == 0), ]
 
@@ -48,12 +48,13 @@ OCC <- OCC[-which(OCC$year<1985),]
 
 # associer pour chaque année la decade correspondante pour pouvoir récupérer température et salinité
 # il y a un problème -> le régler
-OCC@data$decade <- ifelse(OCC@data$year >= 1985 & OCC@data$year <= 1994, 1, OCC@data$decade)
-OCC@data$decade <- ifelse(OCC@data$year >= 1995 & OCC@data$year <= 2004, 2, OCC@data$decade)
-OCC@data$decade <- ifelse(OCC@data$year >= 2004 & OCC@data$year <= 2012, 3, OCC@data$decade)
-if(length(which(is.na(OCC@data$decade))) > 0){OCC = OCC[-which(is.na(OCC@data$decade)), ]}
-OCC@data$Temperature <- NA
-OCC@data$Salinity <- NA
+OCC$decade <- NA
+OCC$decade <- ifelse(OCC$year >= 1985 & OCC$year <= 1994, 1, OCC$decade)
+OCC$decade <- ifelse(OCC$year >= 1995 & OCC$year <= 2004, 2, OCC$decade)
+OCC$decade <- ifelse(OCC$year >= 2004 & OCC$year <= 2012, 3, OCC$decade)
+if(length(which(is.na(OCC$decade))) > 0){OCC = OCC[-which(is.na(OCC$decade)), ]}
+OCC$Temperature <- NA
+OCC$Salinity <- NA
 #blabla
 
 
@@ -298,10 +299,75 @@ temp_surf_plus_proche = Temperature@Surface_mean[i_dtemp_min]
 
 ############# Création du date frame complet absence ##############
 
-# définir autour de nos coordonnées d'occurence d'observation une zone dans laquelle il ne sera pas possible de piocher les absences
-# à faire
+# definir autour de nos coordonnées d'occurence d'observation une zone dans laquelle il ne sera pas possible de piocher les absences
+# a faire
 
-# piocher, au sein de notre zone d'étude (pour laquelle on a toutes les infos enviro), et en dehors de nos zones au voisinnage d'une présence nouvellement délimitées des coordonnées qui correspondront aux endroits d'"absence"
+# les coordonnees sont des degres d�cimaux. 
+# une variation � partir du 5eme chiffre apres la virgule correspond a une variation d'environ 1.11 m a l'equateur.
+# dans un soucis de simplification, et de part la petitesse de la superficie des zones calculees autour des occurrences,
+# nous allons negliger la courbure de la Terre et considerer une variation de 1.11 m dans la Grande Barriere de corail.
+
+# Rayon de la Terre : 6400 km
+# La Grande Barri�re de corail se situe environ a 20 degres Sud
+# Rayon de la Terre dans le plan passant par la latitude 20 degres Sud et parallele au plan de l'equateur : 6400 * cos(20) = 6014 km
+# Le rapport entre la variation en metres entre la latitude a l'equateur et a la latitude de laGrande Barriere de corail est : 6014/6400 = 0.93969
+# La variation au niveau de la Grande Barriere de corail est donc de 1.11 * 0.93969 = 1.04
+
+lim = 2000/(100000 * 1.04) #on d�finit les limites des zones o� l'on ne fera pas les tirages des pseudos absences avec un rayon de 1000 m autour de l'occurrence, que l'on convertit en variation de degres decimaux. 
+#cette zone represente l'aire ou les poissons n'ont pas etes observes mais sont consideres comme existants
+
+OCC$occurrence <- NA
+OCC$occurrence <- rep(1, nrow(OCC))
+
+OCCd1 <- OCC[which(OCC$decade == 1),] # on separe chaque decennie
+OCCd2 <- OCC[which(OCC$decade == 2),]
+OCCd3 <- OCC[which(OCC$decade == 3),]
+
+T1<-Sys.time()
+
+for (i in 1:nrow(OCC)){# pour chaque occurrence
+  for(j in 1:nrow(geomorphic)){
+    if(sqrt((OCC[i,1] - geomorphic[j,1])^2 + (OCC[i,2] - geomorphic[j,2])^2) <= lim){# si les coordonnees utilisees plus tard pour generer les pseudo absences sont dans la zone, alors la donnee correspondante est supprimee
+      geomorphic <- geomorphic[ -j,]
+    }
+  }
+}
+T2<-Sys.time()
+Tdiff= difftime(T2, T1) 
+
+par(mfrow = c(3,1))
+# plot se^pare pour chaque decennie (uniquement visualisation, soit pimper soit tej)
+
+plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
+par(new=T)
+plot(x=OCCd1[,1], y=OCCd1[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
+
+
+plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
+par(new=T)
+plot(x=OCCd2[,1], y=OCCd2[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
+
+
+plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
+par(new=T)
+plot(x=OCCd3[,1], y=OCCd3[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
+
+
+
+# piocher, au sein de notre zone d'étude (pour laquelle on a toutes les infos enviro), et en dehors de nos zones au voisinage d'une présence nouvellement délimitées des coordonnées qui correspondront aux endroits d'"absence"
 # piocher autant d'absences que d'occurences
 
+abs <- geomorphic #initialisation du dossier contenant les pseudo absences
+
+for (i in 1:nrow(abs)){ # on vide les lignes (on veut un tableau vide a remplir au fur et a mesure)
+  abs[i,] = NA
+}
+set.seed(1)
+for (i in 1:nrow(OCC)){ # chaque ligne devient un tirage aleatoire parmi les donnees du sol de la Grande Barriere de corail
+  abs[i,] = geomorphic[sample(1:nrow(geomorphic)),]
+}
+abs$espece <- NA
+abs$espece <- rep(0, nrow(abs)) # on associe a ce tirage des absences
+
+#faudra alors y ajouter les donnees des autres variables avant de la rbind avec OCC, puis utiliser OCC pour machine learning
 # ajouter ensuite à partir de ce tableau ABS les colonnes avec les variables enviro correspondantes comme on l'a fait pour OCC
