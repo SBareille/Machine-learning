@@ -1,0 +1,290 @@
+
+library(ggplot2)
+library(cowplot)
+library(randomForest)
+
+# coordonnées pour les variables
+Y=seq(16,35,2)
+X=seq(1,10)
+
+# creation de variables osef
+Présence = sample(c(0,1),100, replace = T)
+var1=sample(40,100, replace=T) + 220*Présence 
+var2=sample(seq(20:60),100,replace=T) + 0.5*Présence
+U=seq(from=pi, to=200 , length.out = 10)
+var3=NULL
+for (u in U){
+  var3=c(var3, c(rep((u), 10)*c(rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1))))
+}
+
+
+
+# on concatene dans une matrice
+MATRIX=matrix(0, ncol=2, nrow = 1)
+
+for( i in X){
+  for ( j in Y){
+   
+    MATRIX=rbind(MATRIX, c(i , j))
+  }
+} # on fait ça pour que chaque x soit associé à chaque y deux à deux
+# voir plot plus bas
+
+
+
+
+colnames(MATRIX)=c('X' , 'Y' ) # c'est plus jolie
+
+MATRIX=MATRIX[-1,]   # artefact de l'initialisation 
+
+MATRIX=cbind(MATRIX , var1 ,var2 , var3 , Présence) # on fout les variables
+MATRIX
+plot(MATRIX[,1] , MATRIX[,2])
+
+
+######## donc mnt on a une matrice et on veux rajouter la pronfondeur qui est presente dans 
+######## une matrice super grande avec plein de coordonnées que nous onb a pas.
+
+
+
+# les coordonées de la profondeur :  Les profondeurs sont random 
+Coordonees = matrix(data=runif(20000, -20 , 30), ncol=200)
+# 200 colones, 100 lignes
+# On veut que celles de MATRIX
+
+
+
+
+
+
+
+proffondeur=NULL # la variables qu'on va donc rajouter (la profondeur)
+for (i in 1:length(MATRIX[,1])){  
+  x=MATRIX[i,1]
+  y=MATRIX[i,2]
+  proffondeur=c(proffondeur , Coordonees[x,y] )
+}
+MATRIX=cbind(MATRIX , proffondeur)
+
+MATRIX = as.data.frame.array(MATRIX)
+
+
+
+MATRIX[MATRIX$Présence == 0,]$Présence <- "abs"
+MATRIX[MATRIX$Présence == 1,]$Présence <- "pres"
+
+MATRIX$Présence <- as.factor(MATRIX$Présence)
+
+
+#mod = glm(Présence~. , data = MATRIX)
+
+#summary(mod)
+
+
+
+
+# random Forest############################################################################################
+
+model <- randomForest(Présence~MATRIX[,3]+MATRIX[,4]+MATRIX[,5]+MATRIX[,7] , data = MATRIX, proximity=TRUE)
+
+model
+
+
+
+var4=sample(20,100, replace=T) + 23*Présence 
+var5=sample(400,100, replace=T) + 0.3*Présence 
+var6=sample(4,100, replace=T) + 50*Présence 
+MATRIX = cbind(MATRIX,var4,var5,var6 )
+
+
+model <- randomForest(Présence~MATRIX[,3]+MATRIX[,4]+MATRIX[,5]+MATRIX[,7]+MATRIX[,8]+MATRIX[,9]+MATRIX[,10] , data = MATRIX, proximity=TRUE)
+
+model$confusion
+
+
+model$vote[,1]
+
+# ROC ####
+library(pROC)
+roc(Présence, model$vote[,1], plot=TRUE)
+
+
+
+#lda############################################################################################
+
+library(MASS)
+#install.packages('ROCR')
+library(ROCR)
+#  >>>>Performing Linear Discriminant Analysis
+# For this one we used a package which requires 2 sub-datasets : 1 with the explanatory variables 1 
+# and 1 with the explained variable. 
+MATRIX2 = MATRIX[,-6] 
+
+train = MATRIX2[1:75,]
+test = MATRIX2[76:100,]
+
+z <- lda(train,MATRIX[1:75,6])
+
+predict(z, test)$class
+
+
+#lda with home made MONTE CARLO cross validation 
+
+Number_of_sample = nrow(MATRIX)                        # the number of sample we have in our dataset
+Number_of_testing_sample = round(Number_of_sample/10)  # we take arround 10% for testing (it can be changed)
+Number_of_training_sample = Number_of_sample - Number_of_testing_sample   # And the rest is for the training part.
+
+
+
+
+
+CONF_MATRICE = matrix(c(0), ncol = 2 , nrow = 2)
+number_of_loops = 2000
+for (interation in 1:number_of_loops ){
+# first we separate the data set for training and learning.
+# for MONTE CARLO cross valisation we allow the sample to be picked several times.
+Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace =   TRUE) 
+MATRIX2 = MATRIX[,-6]   # ON enlève les presences sinon ca bug apres..
+
+train = MATRIX2[Training_dataset_indexes,]    # NOTE : some are duplicates 
+test = MATRIX2[-Training_dataset_indexes,]    # the ones taht were not selected are spared for testing 
+
+lda_fit <- lda(train,MATRIX[Training_dataset_indexes,6] )  # For the training part we give the function the real Data for presence
+
+PRED = predict(lda_fit, test)$class   # we predict the absence or presence for the testing data . The class is pres or abs.
+OBS = MATRIX[-Training_dataset_indexes,6]
+
+CONF_MATRICE = CONF_MATRICE + table(PRED , OBS)
+}
+CONF_MATRICE = CONF_MATRICE/number_of_loops
+CONF_MATRICE =  CONF_MATRICE *100 / sum(CONF_MATRICE)
+CONF_MATRICE
+
+#lda with MONTE CARLO cross validation automatically computed.
+
+lda_fit <- lda(Présence~.,data = MATRIX ,  CV = TRUE) 
+table(lda_fit$class , MATRIX$Présence)
+
+##fin
+## remarque: ça donne la même chose donc mon truc doit pas être trop mal. J'ai testé avec 10000 loops et c'était cali
+
+## test pour faire un putain de AUC de ses morts, en vrai c'est ça qui m'a prit le plus de temps.
+
+#lda_fit <- lda(Présence~.,data = MATRIX ) 
+Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace = TRUE)  
+MATRIX2 = MATRIX[,-6]   # ON enlève les presences
+train = MATRIX2[Training_dataset_indexes,]
+test = MATRIX2[-Training_dataset_indexes,]
+lda_fit <- lda(train,MATRIX[Training_dataset_indexes,6] ) 
+plot(lda_fit)
+test = MATRIX2[-Training_dataset_indexes,]
+lda.pred=predict(lda_fit,test)
+pred <- prediction(lda.pred$posterior[,2],MATRIX[-Training_dataset_indexes,]$Présence) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+####################
+####################
+####################
+Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace =   TRUE) 
+train = MATRIX[Training_dataset_indexes,]    
+test = MATRIX[-Training_dataset_indexes,]
+lda.fit = lda(Présence ~., train)  # The algorithyms is training
+lda.pred=predict(lda.fit,test)
+pred <- prediction(lda.pred$posterior[,2], test$Présence) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+#################### mais que pour 1 seul training...
+####################
+####################
+
+specificity_model = CONF_MATRICE[2,2]/   # j'ai appelelais comme ça car specificity c'est une fonction
+
+
+
+
+# CONF_MATRICE = matrix(c(0), ncol = 2 , nrow = 2)
+# colnames(CONF_MATRICE) = c('abs' , 'pres')
+# rownames(CONF_MATRICE) = c('abs' , 'pres')
+# 
+# for (i in 1:length(PRED)){
+#   if (PRED[i]=='abs' & OBS[i]=='abs'){CONF_MATRICE[1,1] = CONF_MATRICE[1,1] + 1}
+#   if (PRED[i]=='pres' & OBS[i]=='abs'){CONF_MATRICE[1,2] = CONF_MATRICE[1,2] + 1}
+#   if (PRED[i]=='abs' & OBS[i]=='pres'){CONF_MATRICE[2,1] = CONF_MATRICE[2,1] + 1}
+#   if (PRED[i]=='abs' & OBS[i]=='abs'){CONF_MATRICE[2,2] = CONF_MATRICE[2,2] + 1}
+# }
+# CONF_MATRICE 
+
+
+
+############################ Vrai data #######################
+a = 2
+ifelse(a==2, yes = 1, no = 5)
+
+
+
+
+library(readr)
+disk1 <- read_table2("E:/Travail Cahors/mlb_2/disk1.gsd", col_names = FALSE)
+View(disk1)
+
+library(readr)
+disk2 <- read_table2("C:/Users/cleme/Documents/ML/devoir maison/txt en 50 mb/disk2.gsd", col_names = FALSE)
+View(disk1)
+
+library(readr)
+disk2 <- read_table2("ML/devoir maison/txt en 50 mb/disk2.gsd", 
+                     col_names = FALSE)
+View(disk2)
+
+
+library(readr)
+disk1 <- read_table2("ML/devoir maison/txt en 10 mb/disk1.gsd", 
+                     col_names = FALSE)
+
+
+Y=seq(1,ncol(disk1))
+X=seq(1,nrow(disk1))
+
+disk1 = as.matrix(disk1)
+
+hist3D(X,Y,disk1   , xlab='X' , ylab='Y', zlab='pronfondeur' , main='')  #marche
+
+
+
+
+
+
+
+
+library(scatterplot3d)
+library(plot3D)
+library("plot3D")
+library(rgl)
+
+
+
+disk1 <- read_table2("ML/devoir maison/txt en 10 mb/disk3.gsd", 
+                     col_names = FALSE)
+
+
+Y=seq(1,ncol(disk1))
+X=seq(1,nrow(disk1))
+
+disk1 = as.matrix(disk1)
+
+hist3D(X,Y,disk1   , xlab='X' , ylab='Y', zlab='pronfondeur' , main='')  #marche
+
+
+library(readr)
+disk2 <- read_table2("ML/devoir maison/txt en 10 mb/disk2.gsd", 
+                     col_names = FALSE)
+
+
+
+
+Y=seq(1,ncol(disk2))
+X=seq(1,nrow(disk2))
+
+disk2 = as.matrix(disk2)
+
+hist3D(X,Y,disk2  , xlab='X' , ylab='Y', zlab='pronfondeur' , main='')  #marche pas
