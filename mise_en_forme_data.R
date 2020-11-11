@@ -336,7 +336,7 @@ T2<-Sys.time()
 Tdiff= difftime(T2, T1) 
 
 par(mfrow = c(3,1))
-# plot se^pare pour chaque decennie (uniquement visualisation, soit pimper soit tej)
+# plot separe pour chaque decennie (uniquement visualisation, soit pimper soit tej)
 
 plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
 par(new=T)
