@@ -1,0 +1,454 @@
+library(ggplot2)
+library(cowplot)
+library(randomForest)
+library(glmnet)
+library(pROC) 
+library(MASS)
+library(ROCR)
+library(lme4)
+library("caret")
+library('fastDummies')
+##########################################################
+##################### Partie 1 ###########################
+########## Creation d'un faut jeu de données #############
+##########################################################
+# Cette partie n'a quasiement aucun interet. Comme ma vie.
+quali = 1   # 1 quali  -     2 que quanti
+
+# coordonnées pour les variables
+Y=seq(16,35,2)
+X=seq(1,10)
+
+# creation de variables 
+Présence = sample(c(0,1),100, replace = T)
+var1=sample(40,100, replace=T) + 0.5*Présence 
+var2=sample(seq(20:60),100,replace=T) + 0.5*Présence
+U=seq(from=pi, to=200 , length.out = 10)
+var3=NULL
+for (u in U){
+  var3=c(var3, c(rep((u), 10)*c(rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1),rnorm(1,0.5,0.1))))
+}
+
+
+# on concatene dans une matrice.
+MATRIX=matrix(0, ncol=2, nrow = 1)
+
+for( i in X){
+  for ( j in Y){
+   
+    MATRIX=rbind(MATRIX, c(i , j))
+  }
+} # on fait ça pour que chaque x soit associé à chaque y deux à deux
+# voir plot plus bas
+
+colnames(MATRIX)=c('X' , 'Y' ) # c'est plus jolie
+MATRIX=MATRIX[-1,]   # artefact de l'initialisation 
+MATRIX=cbind(MATRIX , var1 ,var2 , var3 , Présence) # on rassemble les variables.
+MATRIX
+plot(MATRIX[,1] , MATRIX[,2])
+# les coordonées de la profondeur :  Les profondeurs sont aléatoires..
+Coordonees = matrix(data=runif(20000, -20 , 30), ncol=200)
+proffondeur=NULL 
+for (i in 1:length(MATRIX[,1])){  
+  x=MATRIX[i,1]
+  y=MATRIX[i,2]
+  proffondeur=c(proffondeur , Coordonees[x,y] )
+}
+MATRIX=cbind(MATRIX , proffondeur)
+MATRIX = as.data.frame.array(MATRIX)
+MATRIX[MATRIX$Présence == 0,]$Présence <- "abs"
+MATRIX[MATRIX$Présence == 1,]$Présence <- "pres"
+MATRIX$Présence <- as.factor(MATRIX$Présence)
+#mod = glm(Présence~. , data = MATRIX)
+#summary(mod)
+var4=sample(20,100, replace=T) + 4.3*Présence 
+var5=sample(400,100, replace=T) + 0.3*Présence 
+
+
+if (quali == 0){
+var6=sample(4,100, replace=T) + 0.5*Présence 
+MATRIX = cbind(MATRIX,var4,var5,var6 )
+}else{
+var6=sample(c("substrat1" , "substrat2"),100, replace = T)
+MATRIX = cbind(MATRIX,var4,var5,var6 )}
+##########################################################
+##################### Partie 2 ###########################
+########## Partie Algo de Machine Learning ###############
+##########################################################
+
+###################### random Forest######################
+
+model <- randomForest(Présence~MATRIX[,3]+MATRIX[,4]+MATRIX[,5]+MATRIX[,7] , data = MATRIX, proximity=TRUE)
+model # peu de variable
+
+
+model <- randomForest(Présence~MATRIX[,3]+MATRIX[,4]+MATRIX[,5]+MATRIX[,7]+MATRIX[,8]+MATRIX[,9]+MATRIX[,10] , data = MATRIX, proximity=TRUE)
+model$confusion # davantage de variables
+
+
+model$vote[,1]
+
+# ROC ####
+
+roc(Présence, model$vote[,1],col="#88CCFF", lwd=8 , plot=TRUE)
+
+
+
+######################## - LDA - ##########################
+explained_Variables = MATRIX[,6]
+explanatory_Variables = MATRIX[,-6]
+explanatory_Variables = dummy_cols(explanatory_Variables)
+explanatory_Variables = explanatory_Variables[,-9]
+explanatory_Variables = as.matrix(explanatory_Variables)
+n <- nrow(MATRIX)
+train_rows <- sample(1:n, .75*n)
+
+
+x.train <- explanatory_Variables[train_rows,]
+x.test <- explanatory_Variables[-train_rows,]
+
+y.train <- explained_Variables[train_rows]
+y.test <- explained_Variables[-train_rows]
+
+
+
+#  >>>>Performing Linear Discriminant Analysis
+# For this one we used a package which requires 2 sub-datasets : 1 with the explanatory variables 1 
+# and 1 with the explained variable. 
+# MATRIX2 = MATRIX[,-6] 
+# 
+# train = MATRIX2[1:75,]
+# test = MATRIX2[76:100,]
+
+z <- lda(x.train,y.train)  # creation du model . On donne ( les Xs  , le Y )
+
+predict(z, x.test)$class
+
+table(predict(z, x.test)$class , y.test)
+
+
+
+
+
+
+#lda with home made MONTE CARLO cross validation 
+
+Number_of_sample = nrow(MATRIX)                        # the number of sample we have in our dataset
+Number_of_testing_sample = round(Number_of_sample/10)  # we take arround 10% for testing (it can be changed)
+Number_of_training_sample = Number_of_sample - Number_of_testing_sample   # And the rest is for the training part.
+
+
+
+
+
+CONF_MATRICE = matrix(c(0), ncol = 2 , nrow = 2)
+number_of_loops = 2000
+for (interation in 1:number_of_loops ){
+# first we separate the data set for training and learning.
+# for MONTE CARLO cross valisation we allow the sample to be picked several times.
+Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace =   TRUE) 
+#MATRIX2 = MATRIX[,-6]   # ON enlève les presences sinon ca bug apres..
+
+train = explanatory_Variables[Training_dataset_indexes,]    # NOTE : some are duplicates 
+test = explanatory_Variables[-Training_dataset_indexes,]    # the ones taht were not selected are spared for testing 
+
+lda_fit <- lda(train,MATRIX[Training_dataset_indexes,6] )  # For the training part we give the function the real Data for presence
+#  LDA_model
+
+PRED = predict(lda_fit, test)$class   # we predict the absence or presence for the testing data . The class is pres or abs.
+OBS = MATRIX[-Training_dataset_indexes,6]
+
+CONF_MATRICE = CONF_MATRICE + table(PRED , OBS)
+}
+CONF_MATRICE = CONF_MATRICE/number_of_loops
+CONF_MATRICE = CONF_MATRICE *100 / sum(CONF_MATRICE)
+CONF_MATRICE
+
+#lda with MONTE CARLO cross validation automatically computed.
+
+lda_fit <- lda(Présence~.,data = MATRIX ,  CV = TRUE) 
+table(lda_fit$class , MATRIX$Présence)
+
+lda_fit <- lda(explained_Variables ~explanatory_Variables ,  CV = TRUE) 
+table(lda_fit$class , MATRIX$Présence)
+
+### PROBLEME je n'arrive pas à faire de ROC avec ce modele ci.
+
+## remarque: ça donne a peu pret la même chose avec le package.
+
+
+
+
+## test pour faire un de AUC 
+
+#lda_fit <- lda(Présence~.,data = MATRIX ) 
+Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace = TRUE)  
+MATRIX2 = MATRIX[,-6]   
+train = explanatory_Variables[Training_dataset_indexes,]
+test = explanatory_Variables[-Training_dataset_indexes,]
+lda_fit <- lda(train,MATRIX[Training_dataset_indexes,6] ) 
+#plot(lda_fit)
+test = explanatory_Variables[-Training_dataset_indexes,]
+
+lda.pred=predict(lda_fit,test)
+pred <- prediction(lda.pred$posterior[,2],MATRIX[-Training_dataset_indexes,]$Présence) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+
+line(perf,colorize=TRUE)
+
+####################
+####################
+####################osef
+Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace =   TRUE) 
+train = explanatory_Variables[Training_dataset_indexes,]    
+test = explanatory_Variables[-Training_dataset_indexes,]
+lda.fit = lda(Présence ~., train) 
+lda.pred=predict(lda.fit,test)
+pred <- prediction(lda.pred$posterior[,2], test$Présence) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+#################### .
+####################
+####################
+# mais que pour 1 seul training.... Il faudrait un modele construit à l'aide de la CV...
+
+
+#specificity_model = CONF_MATRICE[2,2]/   # j'ai appelelais comme ça car specificity c'est une fonction
+
+
+  
+  
+
+
+# CONF_MATRICE = matrix(c(0), ncol = 2 , nrow = 2)
+# colnames(CONF_MATRICE) = c('abs' , 'pres')
+# rownames(CONF_MATRICE) = c('abs' , 'pres')
+# 
+# for (i in 1:length(PRED)){
+#   if (PRED[i]=='abs' & OBS[i]=='abs'){CONF_MATRICE[1,1] = CONF_MATRICE[1,1] + 1}
+#   if (PRED[i]=='pres' & OBS[i]=='abs'){CONF_MATRICE[1,2] = CONF_MATRICE[1,2] + 1}
+#   if (PRED[i]=='abs' & OBS[i]=='pres'){CONF_MATRICE[2,1] = CONF_MATRICE[2,1] + 1}
+#   if (PRED[i]=='abs' & OBS[i]=='abs'){CONF_MATRICE[2,2] = CONF_MATRICE[2,2] + 1}
+# }
+# CONF_MATRICE 
+
+
+
+#### modele lineraire simple ###
+
+ mod4<-glm(MATRIX[,6]~., data = MATRIX[,-6],family=binomial(link=logit))  
+ drop1(mod4,test='Chi')
+ summary(mod4)
+
+
+############## - ridge/lasso/elastic net - #####################
+
+
+MATRIX 
+
+explained_Variables = MATRIX[,6]
+explanatory_Variables = MATRIX[,-6]
+explanatory_Variables=dummy_cols(explanatory_Variables)
+explanatory_Variables = explanatory_Variables[,-9]
+explanatory_Variables = as.matrix(explanatory_Variables)
+
+
+n <- nrow(MATRIX)
+
+
+
+
+
+train_rows <- sample(1:n, .75*n)
+
+
+x.train <- explanatory_Variables[train_rows,]
+x.test <- explanatory_Variables[-train_rows,]
+
+y.train <- explained_Variables[train_rows]
+y.test <- explained_Variables[-train_rows]
+
+
+# 
+# ##ridge##
+# alpha0.fit <- cv.glmnet(x.train, y.train, type.measure="mse", 
+#                         alpha=0, family="binomial")
+# 
+# alpha0.predicted <- predict(alpha0.fit, s=alpha0.fit$lambda.1se,type = "class", newx=x.test)
+# 
+# alpha0.fit <-predict(alpha0.fit, x.test , type = "class")
+
+
+
+###  -marche- ###
+
+alpha0.fit <- cv.glmnet(x.train, y.train, type.measure="mse", 
+                        alpha=0, family="binomial")
+
+alpha0.predicted <- predict(alpha0.fit, s= "lambda.min",type = "class", newx=x.test)
+
+
+table(alpha0.predicted ,y.test )
+#
+
+### ROC  ### 
+t1 <- Sys.time()
+glmnet_classifier <- cv.glmnet(x.train, y.train,
+                               family = 'binomial', 
+                               # L1 penalty
+                               alpha = 1,
+                               # interested in the area under ROC curve
+                               type.measure = "auc",
+                               # 5-fold cross-validation
+                               nfolds = 5,
+                               # high value is less accurate, but has faster training
+                               thresh = 1e-3,
+                               # again lower number of iterations for faster training
+                               maxit = 1e3)
+print(difftime(Sys.time(), t1, units = 'mins'))
+
+preds <- predict(glmnet_classifier,x.test, type = 'response')[ ,1]
+
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+library(ROCR)
+# Calculate true positive rate and false positive rate on the prediction object
+perf <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+
+plot(perf)
+
+
+
+
+
+
+roc(Présence, model$vote[,1],col="#88CCFF", lwd=8 , plot=TRUE)
+
+
+
+## lasso ## 
+ 
+ 
+lasso.model <- glmnet(x.train, y.train, alpha = 1, family = "binomial",
+                      lambda = alpha0.fit$lambda.1se)
+
+
+lasso.predicted <- predict(lasso.model, s=alpha0.fit$lambda.1se, newx=x.test ,type = "class")
+
+# Make prediction on test data
+x.test <- model.matrix(diabetes ~., test.data)[,-1]
+probabilities <- lasso.model %>% predict(newx = x.test)
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+# Model accuracy rate
+observed.classes <- test.data$diabetes
+mean(predicted.classes == observed.classes)
+
+
+
+predict(fit, newx = x[1:5,], type = "response", s = 0.05)
+
+
+
+
+fit2=bigGlm(x.train, y.train,family="binomial")
+
+
+
+###########plsda##############
+train = as.matrix(train)
+plsda(train,MATRIX[1:75,6],ncomp = 2, scale = TRUE )
+
+
+
+##############dummies
+MATRIX[,10]
+dummy_columns()
+dummy_cols(MATRIX)
+
+
+
+
+
+
+
+
+# ????????????????????????????????????????????????????????????
+# ????????????????????????????????????????????????????????????
+# ????????????????????????????????????????????????????????????
+# ????????????????????????????????????????????????????????????
+# ????????????????????????????????????????????????????????????
+# ????????????????????????????????????????????????????????????
+
+
+############################ Vrai data #######################
+a = 2
+ifelse(a==2, yes = 1, no = 5)
+
+
+
+
+library(readr)
+disk1 <- read_table2("E:/Travail Cahors/mlb_2/disk1.gsd", col_names = FALSE)
+View(disk1)
+
+library(readr)
+disk2 <- read_table2("C:/Users/cleme/Documents/ML/devoir maison/txt en 50 mb/disk2.gsd", col_names = FALSE)
+View(disk1)
+
+library(readr)
+disk2 <- read_table2("ML/devoir maison/txt en 50 mb/disk2.gsd", 
+                     col_names = FALSE)
+View(disk2)
+
+
+library(readr)
+disk1 <- read_table2("ML/devoir maison/txt en 10 mb/disk1.gsd", 
+                     col_names = FALSE)
+
+
+Y=seq(1,ncol(disk1))
+X=seq(1,nrow(disk1))
+
+disk1 = as.matrix(disk1)
+
+hist3D(X,Y,disk1   , xlab='X' , ylab='Y', zlab='pronfondeur' , main='')  #marche
+
+
+
+
+
+
+
+
+library(scatterplot3d)
+library(plot3D)
+library("plot3D")
+library(rgl)
+
+
+
+disk1 <- read_table2("ML/devoir maison/txt en 10 mb/disk3.gsd", 
+                     col_names = FALSE)
+
+
+Y=seq(1,ncol(disk1))
+X=seq(1,nrow(disk1))
+
+disk1 = as.matrix(disk1)
+
+hist3D(X,Y,disk1   , xlab='X' , ylab='Y', zlab='pronfondeur' , main='')  #marche
+
+
+library(readr)
+disk2 <- read_table2("ML/devoir maison/txt en 10 mb/disk2.gsd", 
+                     col_names = FALSE)
+
+
+
+
+Y=seq(1,ncol(disk2))
+X=seq(1,nrow(disk2))
+
+disk2 = as.matrix(disk2)
+
+hist3D(X,Y,disk2  , xlab='X' , ylab='Y', zlab='pronfondeur' , main='')  #marche pas
