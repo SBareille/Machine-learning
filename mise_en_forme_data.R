@@ -18,10 +18,12 @@ library(ade4)
 library(rworldmap)
 require(stringr)
 library(colorRamps)
-library(biogeonetworks) 
+library(biogeonetworks)
+library(sf)
+#library(Rmpfr)
 
 ### Set working directory 
-setwd("C:/Users/serva/Google Drive/1-Partage Ordis/M2/Machine_learning/Projet")
+setwd("C:/Users/flori/Desktop/cours/MLB")
 
 # Download occurrences from OBIS  
 # on garde seulement les colonnes coordonnées et date d'observation (pour pouvoir récupérer les données environnementales correspondantes)
@@ -38,11 +40,35 @@ OCC <- na.omit(OCC, cols='year')
 OCC <- OCC[-which(OCC$year<1985),]
 OCC <- OCC[-which(OCC$year>2012),] # car on n'a pas de températures dispo après 2012. Même sur NOAA. 
                                   # doit on vraiment enlever ces poissons ? car il y en a quand même environ 900 (sur environ 4900)
+
+
 # associer pour chaque année la decade correspondante pour pouvoir récupérer température et salinité
 OCC$decade <- NA
 OCC$decade <- ifelse(OCC$year >= 1985 & OCC$year <= 1994, 1, OCC$decade)
 OCC$decade <- ifelse(OCC$year >= 1995 & OCC$year <= 2004, 2, OCC$decade)
 OCC$decade <- ifelse(OCC$year >= 2004 & OCC$year <= 2012, 3, OCC$decade)
+
+# # Importing boudries coordinates 
+
+boundaries <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "qld_gbrwha_cscz",
+  verbose=FALSE)
+
+
+plot(OCC$longitude, OCC$latitude, xlim=c(120,155), ylim=c(-28,-14))
+par(new=T)
+plot(coordinates(boundaries)[[1]][[1]],pch=20, xlim=c(120,155), ylim=c(-28,-14))
+
+#there are some fishes out of boundaries, we delete them
+OCC <- OCC[-which(OCC$longitude<140),]
+OCC <- OCC[-which(OCC$latitude< -25),]
+
+plot(OCC$longitude, OCC$latitude, xlim=c(120,155), ylim=c(-28,-14))
+par(new=T)
+plot(coordinates(boundaries)[[1]][[1]],pch=20, xlim=c(120,155), ylim=c(-28,-14))
+
+#Now all the fishes are in our boundaries
 
 #Plot occurrences
 # a faire. les lignes en dessous ne sont que des exemples
@@ -72,9 +98,6 @@ OCC$decade <- ifelse(OCC$year >= 2004 & OCC$year <= 2012, 3, OCC$decade)
 # colnames(geomorphic_1) = c("lon","lat")
 # geomorphic_1$type = "cay"
 
-download.file("http://sdm.dev-lab.net/geomorphic.csv",
-              destfile = "geomorphic.csv", mode = "wb")
-geomorphic <- read.table("geomorphic.csv", sep = ',', header = T)
 
 
 # faire représentation graphique ? 
@@ -88,12 +111,12 @@ geomorphic <- read.table("geomorphic.csv", sep = ',', header = T)
 # Grace aux coordonnées de notre zone où a des informations sur le geomorph on a l'étendu de notre zone d'étude
 # Avant de créer les absences, on va enlever les poissons qui ont été observés trop loins de notre zone d'étude en se servant de la distance minimiale qu'ils ont avec celle-ci
 # si à plus de 100 km de la zone on supprime.
-for (k in 1:nrow(OCC)){
-  d = sqrt((OCC$longitude[k]-geomorphic$lon)^2 + (OCC$latitude[k]-geomorphic$lat)^2)
-  if (min(d) > 100000/(100000 * 1.04)){
-    OCC <- OCC[-k,]
-    }
-}
+#for (k in 1:nrow(OCC)){
+#  d = sqrt((OCC$longitude[k]-geomorphic$lon)^2 + (OCC$latitude[k]-geomorphic$lat)^2)
+#  if (min(d) > 100000/(100000 * 1.04)){
+#    OCC <- OCC[-k,]
+#    }
+#}
 # le problème c'est qu'il y a beaucoup de données qui sont à plus de 100 km d'une donnée locale geomorphic
 # en fait on n'a pas assez de données geomorphic pour s'en servir pour délimiter la zone
 # il faudrait qu'on se serve des infos de boundaries mais comme il ne s'agit pas d'une zone rectangulaire on n'arrive pas faire des conditions sur ces limites
@@ -101,19 +124,21 @@ for (k in 1:nrow(OCC)){
 
 # # Importing boudries coordinates 
 
-# boundaries <- readOGR( 
-#   dsn= "3dgbr_geomorph/shape", 
-#   layer = "qld_gbrwha_cscz",
-#   verbose=FALSE)
-# 
-# boundaries <- coordinates(boundaries)[[1]][[1]]
-# plot(boundaries,pch=20)
-# 
-# # ajouter la limite sud (à latitude = -24.5)
-# for (longit in seq(152.042,154,by=0.001)){
-#   boundaries <- rbind(boundaries, c(longit,-24.5))
-# }
-# plot(boundaries,pch=20)
+ boundaries <- readOGR( 
+   dsn= "3dgbr_geomorph/shape", 
+   layer = "qld_gbrwha_cscz",
+   verbose=FALSE)
+ 
+ #boundaries <- coordinates(boundaries)[[1]][[1]]
+ #plot(boundaries,pch=20)
+ plot(coordinates(boundaries)[[1]][[1]], xlim=c(140,160), ylim=c(-25,-10), col='green')
+ 
+
+ # ajouter la limite sud (à latitude = -24.5)
+ # for (longit in seq(152.042,154,by=0.001)){
+ #  boundaries <- rbind(boundaries, c(longit,-24.5))
+ #}
+ #plot(boundaries,pch=20)
 
 
 ############# Création du date frame absence ##############
@@ -140,107 +165,212 @@ for (k in 1:nrow(OCC)){
 # Le rapport entre la variation en metres entre la latitude a l'equateur et a la latitude de laGrande Barriere de corail est : 6014/6400 = 0.93969
 # La variation au niveau de la Grande Barriere de corail est donc de 1.11 * 0.93969 = 1.04
 
-lim = 2000/(100000 * 1.04) #on d嶨init les limites des zones o� l'on ne fera pas les tirages des pseudos absences avec un rayon de 2000 m autour de l'occurrence, que l'on convertit en variation de degres decimaux. 
+lim = 1000/(100000 * 1.04) #on d嶨init les limites des zones o� l'on ne fera pas les tirages des pseudos absences avec un rayon de 1 km autour de l'occurrence, que l'on convertit en variation de degres decimaux. 
 #cette zone represente l'aire ou les poissons n'ont pas etes observes mais sont consideres comme existants
 
+
+#####################################################
+#####################################################
+#creation jeu de donnees pseudos absences
+#####################################################
+#####################################################
+
+# initialisation des coordonnees de la zone d'etude des 2 premieres decennies
+coord_bnd <- coordinates(boundaries)[[1]][[1]]
+colnames(coord_bnd) <- c('longitude','latitude')
+coord_bnd <-as.data.frame(coord_bnd)
+
+
+###exclusion zone interdite par decennie
 OCCd1 <- OCC[which(OCC$decade == 1),] # on separe chaque decennie
 OCCd2 <- OCC[which(OCC$decade == 2),]
 OCCd3 <- OCC[which(OCC$decade == 3),]
 
-T1<-Sys.time()
+# initialisation des matrices contenants les pseudos absences
+absd1 <- matrix(as.numeric(NA), nrow = nrow(OCCd1), ncol = 2)
+absd2 <- matrix(as.numeric(NA), nrow = nrow(OCCd2), ncol = 2)
+absd3 <- matrix(as.numeric(NA), nrow = nrow(OCCd3), ncol = 2)
 
-geomd1 <- geomorphic
-for (i in 1:nrow(OCCd1)){# pour chaque occurrence
-  for(j in 1:nrow(geomorphic)){
-    if(sqrt((OCCd1[i,1] - geomorphic[j,1])^2 + (OCCd1[i,2] - geomorphic[j,2])^2) <= lim){# si les coordonnees utilisees plus tard pour generer les pseudo absences sont dans la zone, alors la donnee correspondante est supprimee
-      geomd1 <- geomd1[ -j,]
-    }
+# Si des pseudos absences generees se trouvent dans une zone a proximite d'une occurrence, pour limiter le temps de calcul,
+# on refait un tirage aleatoire dans une aire specifique eloignee de toutes les occurrences, incluse dans notre zone d'etude
+
+# on etudie les occurrences des poissons selon leurs coordonnees, puis on decide de definir la zone
+# ou il n'y aura que des presences (aucune pseudo absence)
+plot(OCCd1$longitude, OCCd1$latitude, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+# definition des bordures de la zone sans pseudos absences
+
+# limite sud
+lim_south <- OCCd1[which.max(OCCd1$longitude),1:2]
+lim_south[1] <- lim_south[1] + lim
+lim_south <- as.numeric(lim_south)
+
+# limite extreme sud
+bound_south <-c(lim_south[1], min(coord_bnd$latitude))
+
+# limite du milieu de zone
+lim_mid <- c(x=152.5743 + lim, y=-21.46962 + lim)
+
+# limite nord
+lim_north <- as.numeric(OCCd1[which.max(OCCd1$latitude),1:2])
+lim_north[1] <- lim_north[1] + lim
+lim_north[2] <- lim_north[2] + lim
+
+# limite extreme nord
+bound_north <- c(min(coord_bnd$longitude), lim_north[2])
+
+#on supprime les points de bordure ou se situe la zone des occurrences pour la redefinir selon le critere de distance (lim de 1 km de rayon)
+coord_bnd <- coord_bnd[-which(coord_bnd$longitude < bound_south[1] & coord_bnd$latitude < lim_north[2]),]
+
+#initialisation des limites de la zone de tirage pour la 3eme decennie, ou il y aura un changement par rapport aux 2 premieres
+coord_bnd_d3 <- coord_bnd 
+
+#plot(coord_bnd, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+#definition de la bordure verticale au sud de la zone
+for (i in seq(bound_south[2], lim_south[2], by = 0.01)){
+  coord_bnd <- rbind(coord_bnd, c(lim_south[1],i))
+}
+plot(coord_bnd, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+
+S <- seq(lim_south[2], lim_mid[2], by = 0.01)
+pas <- (lim_mid[2] - lim_south[2])/length(S)
+i <- lim_mid[1]
+j <- lim_mid[2]
+while(i < lim_south[1]){
+  i <- i + 0.01
+  j <- j - pas
+    coord_bnd <- rbind(coord_bnd, c(i,j))
+}
+plot(coord_bnd, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+
+S2 <- seq(lim_north[1], lim_mid[1], by = 0.01)
+
+pas2 <- (lim_mid[1] - lim_north[1])/length(S2)
+i <- lim_north[1]
+j <- lim_north[2]
+while(i < lim_mid[1]){
+  i <- i + 0.01
+  j <- j - pas2
+  coord_bnd <- rbind(coord_bnd, c(i,j))
+}
+plot(coord_bnd, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+
+# polygone de la zone o� il ne doit pas y avoir de pseudos absences pour la 1ere decennie
+poly_OCC <- Polygon(coords = matrix(c(bound_south, lim_mid, lim_north, bound_north, bound_south), nrow = 5, ncol = 2, byrow = T))
+
+# polygone o� se feront les tirages des pseudos absences dd la 1ere decennie
+Polys <- Polygon(coords = as.matrix(coord_bnd, nrow = nrow(coord_bnd), ncol = 2))
+
+
+# tirage aleatoire des pseudos absences , tant qu'elles se trouvent dans la zone des presences, on refait le tirage
+# puis on enregistre les coordonnees des pseudos abscences
+for(i in 1:nrow(OCCd1)){
+  abs <- sample(spsample(Polys,n=1,type="random", precision = 4))
+  while(point.in.polygon(coordinates(abs)[1], coordinates(abs)[2], c(bound_south[1], lim_mid[1], lim_north[1], bound_north[1]), c(bound_south[2], lim_mid[2], lim_north[2], bound_north[2])) == 1){
+    abs <- sample(spsample(Polys,n=1,type="random", precision = 4))
   }
+  absd1[i,] <- coordinates(abs)[1,]
 }
 
-T2<-Sys.time()
-Tdiff= difftime(T2, T1) 
 
-geomd2 <- geomorphic
-for (i in 1:nrow(OCCd2)){
-  for(j in 1:nrow(geomorphic)){
-    if(sqrt((OCCd2[i,1] - geomorphic[j,1])^2 + (OCCd2[i,2] - geomorphic[j,2])^2) <= lim){     
-      geomd2 <- geomd2[ -j,]
-    }
+# tirage aleatoire des pseudos absences , tant qu'elles se trouvent dans la zone des presences, on refait le tirage
+#puis on enregistre les coordonnees des pseudos abscences
+for(i in 1:nrow(OCCd2)){
+  abs <- sample(spsample(Polys,n=1,type="random", precision = 4))
+  while(point.in.polygon(coordinates(abs)[1], coordinates(abs)[2], c(bound_south[1], lim_mid[1], lim_north[1], bound_north[1]), c(bound_south[2], lim_mid[2], lim_north[2], bound_north[2])) == 1){
+    abs <- sample(spsample(Polys,n=1,type="random", precision = 4))
   }
+  absd2[i,] <- coordinates(abs)[1,]
 }
 
-geomd3 <- geomorphic
-for (i in 1:nrow(OCCd3)){
-  for(j in 1:nrow(geomorphic)){
-    if(sqrt((OCCd3[i,1] - geomorphic[j,1])^2 + (OCCd3[i,2] - geomorphic[j,2])^2) <= lim){      
-      geomd3 <- geomd1[ -j,]
-    }
+
+# on isole les occurrences qui ne sont pas dans la meme zone que les 2 premieres decennies
+area_d3 <- OCCd3[which(OCCd3$longitude > 152 & OCCd3$latitude > -22),1:2]
+
+# on redefinit les bordures de la zone de presence des poissons de la 3eme decennie
+
+# limite sud
+lim_south_d3 <- c(area_d3[which.max(area_d3$longitude),1], area_d3[which.max(area_d3$latitude),2])
+lim_south_d3[1] <- lim_south_d3[1] + lim
+lim_south_d3[2] <- lim_south_d3[2] + lim
+
+# limite extreme sud
+bound_south_d3 <- bound_south
+bound_south_d3[1] <- lim_south_d3[1]
+
+# limite du milieu de zone
+lim_mid_d3 <- lim_mid
+lim_mid_d3[1] <- lim_south_d3[1]
+
+# limite nord
+lim_north_d3 <- lim_north
+
+# limite extreme nord
+bound_north_d3 <- bound_north
+
+# on definit le pas de progression des longitudes en fonction du pas et de l'ensemble de definition des latitudes
+S1_d3 <- seq(bound_south_d3[2], lim_south_d3[2], by = 0.01)
+pas <- (lim_south_d3[2] - bound_south_d3[2])/length(S1_d3)
+#ajout de la bordure verticale au sud de la zone
+i <- bound_south_d3[2]
+j <- bound_south_d3[1]
+while(i < lim_south_d3[2]){
+  i <- i + 0.01
+  coord_bnd_d3 <- rbind(coord_bnd_d3, c(j,i))
+}
+#plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+# on definit le pas de progression des longitudes en fonction du pas et de l'ensemble de definition des latitudes
+S2_d3 <- seq(lim_south_d3[2], lim_north_d3[2], by = 0.01)
+pas2 <- (lim_south_d3[1] - lim_north_d3[1])/length(S2_d3)
+#ajout de la bordure diagonale au centre de la zone
+i <- lim_north_d3[1]
+j <- lim_north_d3[2]
+while(i < lim_south_d3[1]){
+  i <- i + pas2
+  j <- j - 0.01
+  coord_bnd_d3 <- rbind(coord_bnd_d3, c(i,j))
+}
+#plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+#definition de la zone d'etude de la 3eme decennie
+Polys_d3 <- Polygon(coords = as.matrix(coord_bnd_d3, nrow = nrow(coord_bnd_d3), ncol = 2))
+#definition de la zone ou les pseudos absences ne doivent pas se trouver
+ban_d3 <- rbind(bound_south_d3, lim_south_d3, lim_north_d3, bound_north_d3)
+poly_d3 <- Polygon(coords = ban_d3)
+
+# on tire les pseudos absenses aleatoirement dans la zone d'etude.
+# tant que le point tire est dans la zone des poissons, on refait le tirage
+# les coordonnees des pseudos absences sont enregistrees
+for(i in 1:nrow(OCCd3)){
+  abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  while(point.in.polygon(coordinates(abs)[1], coordinates(abs)[2], c(bound_south_d3[1], lim_south_d3[1], lim_north_d3[1], bound_north_d3[1]), c(bound_south_d3[2], lim_south_d3[2], lim_north_d3[2], bound_north_d3[2])) == 1){
+    abs <- sample(spsample(Polys,n=1,type="random", precision = 4))
   }
+  absd3[i,] <- coordinates(abs)[1,]
 }
 
-par(mfrow = c(3,1))
-# plot separe pour chaque decennie (uniquement visualisation, soit pimper soit tej)
-
-plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
-par(new=T)
-plot(x=OCCd1[,1], y=OCCd1[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
-
-
-plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
-par(new=T)
-plot(x=OCCd2[,1], y=OCCd2[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
+#on rassemble les pseudos absences
+ABS <- rbind(absd1,absd2,absd3)
+ABS <- data.frame(ABS)
+colnames(ABS) <- c('longitude', 'latitude')
+write.csv(ABS,"ABS.csv", row.names = TRUE)
 
 
-plot(x=geomorphic[,1], y=geomorphic[,2], xlim=c(144,160), ylim=c(-25,-10), col='red')
-par(new=T)
-plot(x=OCCd3[,1], y=OCCd3[,2], xlim=c(144,160), ylim=c(-25,-10), col='green')
-
-
-# piocher, au sein de notre zone d'矇tude (pour laquelle on a toutes les infos enviro), et en dehors de nos zones au voisinage d'une pr矇sence nouvellement d矇limit矇es des coordonn矇es qui correspondront aux endroits d'"absence"
-# Les tirages sont différents pour chaque décennie pour pouvoir prendre en compte un changement de distribution si il y en a eu.  
-# piocher autant d'absences que d'occurences. 
-
-ABSd1 <- geomd1 #initialisation du dataframe contenant les pseudo absences pour la decennie 1 (puis pour chaque decennie apres)
-
-for (i in 1:nrow(ABSd1)){ # on vide les lignes (on veut un tableau vide a remplir au fur et a mesure)
-  ABSd1[i,] = NA
-}
-set.seed(1)
-for (i in 1:nrow(OCCd1)){ # chaque ligne devient un tirage aleatoire parmi les donnees du sol de la Grande Barriere de corail
-  ABSd1[i,] = geomd1[sample(1:nrow(geomd1)),]
-}
-
-ABSd2 <- geomd2
-
-for (i in 1:nrow(ABSd2)){
-  ABSd2[i,] = NA
-}
-set.seed(1)
-for (i in 1:nrow(OCCd2)){
-  ABSd2[i,] = geomd2[sample(1:nrow(geomd2)),]
-}
-
-ABSd3 <- geomd3
-
-for (i in 1:nrow(ABSd3)){
-  ABSd3[i,] = NA
-}
-set.seed(1)
-for (i in 1:nrow(OCCd3)){
-  ABSd3[i,] = geomd2[sample(1:nrow(geomd3)),]
-}
-
-ABS <- rbind(ABSd1, ABSd2, ABSd3)
 
 # on ajoute une colonne presence remplie de 0 ou 1 pour pouvoir ensuite lors de notre analyse assimiler que 1=présence et 0=absence
+OCC <- OCC[,-3]
 OCC$presence <- NA
 OCC$presence <- rep(1, nrow(OCC))
+ABS$decade <- NA
+ABS$decade <- OCC$decade
 ABS$presence <- NA
 ABS$presence <- rep(0, nrow(ABS))
-ABS$year <- NA  # pour avoir le même nombre de colonnes qu'avec OCC pour fusion
-# ajouter colonne year aussi
-# le problème c'est que les noms de colonnes sont différents. A voir si on fait un tirage au sort à partir d'autre chose que geomorphic (à partir des coordonnées comprises dans boundaries)
+
 
 # fusionner les deux tableaux OCC et ABS pour ensuite analyser facilement les données
 # la fusion avant le récupérage des variables permet d'écrire moins de lignes de code, mais si besoin on peut aussi récupérer les variables pour chaque tableau séparément.
@@ -252,6 +382,11 @@ DATA <- rbind(OCC, ABS)
 ############# Ajout des variables pour nos données occurences et absences à partir des coordonnées  ##############
 
 # On commence par ajouter la variable geomorphic (comme on l'a déjà chargé)
+
+download.file("http://sdm.dev-lab.net/geomorphic.csv",
+              destfile = "geomorphic.csv", mode = "wb")
+geomorphic <- read.table("geomorphic.csv", sep = ',', header = T)
+
 
 for (k in 1:nrow(DATA)){
   d = sqrt((DATA$longitude[k]-geomorphic$lon)^2 + (DATA$latitude[k]-geomorphic$lat)^2) 
