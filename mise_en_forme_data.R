@@ -233,9 +233,10 @@ for (i in seq(bound_south[2], lim_south[2], by = 0.01)){
 }
 plot(coord_bnd, xlim=c(140,160), ylim=c(-25,-10), col='green')
 
-
+# on definit le pas de progression des longitudes en fonction du pas et de l'ensemble de definition des latitudes
 S <- seq(lim_south[2], lim_mid[2], by = 0.01)
 pas <- (lim_mid[2] - lim_south[2])/length(S)
+# ajout de la bordure entre le sud et le milieu de zone
 i <- lim_mid[1]
 j <- lim_mid[2]
 while(i < lim_south[1]){
@@ -245,10 +246,11 @@ while(i < lim_south[1]){
 }
 plot(coord_bnd, xlim=c(140,160), ylim=c(-25,-10), col='green')
 
-
+# on definit le pas de progression des longitudes en fonction du pas et de l'ensemble de definition des latitudes
 S2 <- seq(lim_north[1], lim_mid[1], by = 0.01)
-
 pas2 <- (lim_mid[1] - lim_north[1])/length(S2)
+
+# ajout de la bordure au milieu de la zone d'etude
 i <- lim_north[1]
 j <- lim_north[2]
 while(i < lim_mid[1]){
