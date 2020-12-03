@@ -89,7 +89,7 @@ OCCd1 <- OCC[which(OCC$decade == 1),] # on separe chaque decennie
 OCCd2 <- OCC[which(OCC$decade == 2),]
 OCCd3 <- OCC[which(OCC$decade == 3),]
 
-# initialisation des matrices contenants les pseudos absences
+# initialisation des matrices contenants les pseudos absences par decennie
 absd1 <- matrix(as.numeric(NA), nrow = nrow(OCCd1), ncol = 2)
 absd2 <- matrix(as.numeric(NA), nrow = nrow(OCCd2), ncol = 2)
 absd3 <- matrix(as.numeric(NA), nrow = nrow(OCCd3), ncol = 2)
