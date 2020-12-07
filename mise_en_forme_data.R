@@ -182,7 +182,7 @@ bound_north_d3 <- c(min(coord_bnd_d3$longitude), lim_north_d3[2])
 # Initialisation de la zone de tirage des pseudo absences en supprimant la partie des coordonnees limites correspondant a la zone des occurrences
 # pour les remplacer, et ainsi redefinir le trace des limites de la zone de tirage, en se basant sur la zone d'etude
 
-coord_bnd_d3 <- coord_bnd[-which(coord_bnd$longitude < bound_south_d3[1] & coord_bnd$latitude < lim_north_d3[2]),]
+coord_bnd_d3 <- coord_bnd[-which(coord_bnd[,1] < bound_south_d3[1] & coord_bnd[,2] < lim_north_d3[2]),]
 
 ###################################################################################################
 ### Definition des nouvelles bordures (sud et diagonale) de la zone de tirage des pseudos absences
@@ -193,6 +193,7 @@ coord_bnd_d3 <- coord_bnd[-which(coord_bnd$longitude < bound_south_d3[1] & coord
 
 # Initialisation des latitudes des coordonnees de la bordure sud
 i <- bound_south_d3[2]
+j <- bound_south_d3[1]
 # ajout d'une bordure verticale (longitude fixe) entre la latitude de la limite extreme sud et celle de la limite sud
 while(i < lim_south_d3[2]){
   i <- i + 0.01
@@ -221,7 +222,6 @@ while(i < lim_south_d3[1]){
 
 #definition de la zone de tirage des pseudos absences de la 3eme decennie
 Polys_d3 <- Polygon(coords = as.matrix(coord_bnd_d3, nrow = nrow(coord_bnd_d3), ncol = 2))
-poly_d3 <- Polygon(coords = ban_d3)
 
 
 ##############################################################
@@ -279,7 +279,7 @@ for(i in 1:nrow(OCCd3)){
 plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
 par(new=T)
 plot(absd3, xlim=c(140,160), ylim=c(-25,-10), col='red')
-# Toutes les pseudos absences de la 2eme decennie sont dans la zone de tirage.
+# Toutes les pseudos absences de la 3eme decennie sont dans la zone de tirage.
 
 
 #################################################################
