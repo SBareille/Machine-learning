@@ -1,0 +1,350 @@
+download.file("http://sdm.dev-lab.net/DATA_PREANALYSE.csv",
+              destfile = "DATA_PREANALYSE.csv", mode = "wb")
+DATA <- read.table("DATA_PREANALYSE.csv", sep = ',', header = T)
+
+library(ggplot2)
+library(cowplot)
+library(randomForest)
+library(glmnet)
+library(pROC) 
+library(MASS)
+library(ROCR)
+library(lme4)
+library("caret")
+library('fastDummies')
+
+MATRIX = DATA[,-c(1,2,3,4,5,6)]
+
+summary(MATRIX)
+MATRIX[MATRIX$presence == 0,]$presence <- "abs"
+MATRIX[MATRIX$presence == 1,]$presence <- "pres"
+MATRIX[,1]=as.factor(MATRIX[,1])
+
+
+
+#################################################################
+###################### - random Forest - ########################
+#################################################################
+
+# We first creat the random forest
+model <- randomForest(presence~MATRIX[,1]+MATRIX[,2]+MATRIX[,3]+MATRIX[,4] , data = MATRIX, proximity=TRUE)
+model 
+model$confusion 
+
+model$vote[,1]
+
+# Then we use the ROC to evaluate our model ####
+
+roc(MATRIX$presence, model$vote[,1],col="#88CCFF", lwd=8 , plot=TRUE)
+#  It says : Area under the curve: 1
+#  Conclusion: It works very well.
+
+
+################################################
+##### Predictions with the Random forest #######
+################################################
+
+# Data is splitted into: a sub-set to learn and an other one for the training part.
+# 75% of the initial matrix, randomly selected, are going to be used for the training part.
+# the rest (25%) is going to be used as the testing part.
+
+
+n <- nrow(MATRIX)   # 8086: there are 8086 rows in total.
+train_rows <- sample(1:n, round(0.75*n), replace = FALSE) 
+
+train=MATRIX[train_rows,]
+test = MATRIX[-train_rows,]
+
+model <- randomForest(presence~., train ,  mtry=2, importance=TRUE)
+ 
+predictions <- as.data.frame(predict(model, test, type = "prob"))
+
+predictions$predict <- names(predictions)[1:2][apply(predictions[,1:2], 1, which.max)]
+
+forestpred = prediction(predictions[,2], test$presence)
+forestperf = performance(forestpred, 'tpr', 'fpr')
+plot(forestperf, main='ROC', col = 3 , lwd = 2)
+
+
+
+
+
+
+
+
+############################################################
+######################## - LDA - ############################
+############################################################
+
+######################################
+### 1- data modification##############
+######################################
+
+explanatory_Variables=MATRIX[,c(2,3,4,5)] 
+explained_Variables=MATRIX[,1]  # presence / absence are separated from the rest of the data
+
+# Dummies are created for the qualitative variable (oceanic substrate),
+# then this variable is deleted.
+explanatory_Variables=dummy_cols(explanatory_Variables)
+explanatory_Variables=explanatory_Variables[,-1]
+
+
+###ef#n <- nrow(MATRIX)   # 8086: there are 8086 rows.
+##ef##train_rows <- sample(1:n, round(0.75*n), replace = FALSE)  # 75% of the initial matrix, randomly selected
+
+x.train <- explanatory_Variables[train_rows,]  #75% of the Xs
+x.test <- explanatory_Variables[-train_rows,]  #25% of the Xs
+
+y.train <- explained_Variables[train_rows]     #75% of the Y 
+y.test <- explained_Variables[-train_rows]     #25% of the Y 
+
+####################################################
+#####2 - Performing a Linear Discriminant Analysis##
+####################################################
+
+lda_1 <- lda(x.train ,y.train)  # creation of the model. We use the training sub-dataset.
+
+pred_test = predict(lda_1 , x.test)$class   # We make predictions for the other sub-dataset
+
+table(pred_test , y.test)   # We compare the prediction with the original data.
+####################################################
+######3 - ROC and AUC ##############################
+####################################################
+
+lda.pred=predict(lda_1,x.test)
+pred <- prediction(lda.pred$posterior[,2],MATRIX[-train_rows,]$presence) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,col = 2, lwd= 2 ,add=TRUE)
+
+perf <- performance(pred, "auc")
+perf@y.values[[1]]
+lda_score = perf@y.values[[1]]
+
+
+## The AUC is lower for this analysis
+## Conclusion: Compared to the random forest
+
+
+#########bonus#########
+
+#lda with MONTE CARLO cross validation automatically computed.
+lda_fit <- lda(presence~.,data = MATRIX ,  CV = TRUE) 
+table(lda_fit$class , MATRIX$presence)
+
+
+#lda with MONTE CARLO cross validation made by ourself.
+Number_of_sample = nrow(MATRIX)                        # the number of sample we have in our dataset
+Number_of_testing_sample = round(Number_of_sample/10)  # we take arround 10% for testing (it can be changed)
+Number_of_training_sample = Number_of_sample - Number_of_testing_sample   # And the rest is for the training part.
+
+CONF_MATRICE = matrix(c(0), ncol = 2 , nrow = 2)
+number_of_loops = 10
+for (interation in 1:number_of_loops ){
+  # first we separate the data set for training and learning.
+  # for MONTE CARLO cross validation we allow the sample to be picked several times.
+  Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace =   TRUE) 
+  train = explanatory_Variables[Training_dataset_indexes,]    # NOTE : some are duplicates 
+  test = explanatory_Variables[-Training_dataset_indexes,]    # the ones that were not selected are spared for testing 
+  
+  lda_fit <- lda(train,MATRIX[Training_dataset_indexes,1] )  # For the training part we give the function the real Data for presence
+  #  LDA_model
+  
+  PRED = predict(lda_fit, test)$class   # we predict the absence or presence for the testing data . The class is pres or abs.
+  OBS = MATRIX[-Training_dataset_indexes,1]  # those are the original data for the explained variable.
+  
+  CONF_MATRICE = CONF_MATRICE + table(PRED , OBS)
+}
+CONF_MATRICE = CONF_MATRICE/number_of_loops
+CONF_MATRICE = CONF_MATRICE *100 / sum(CONF_MATRICE)
+CONF_MATRICE   # in percentage
+
+
+
+
+
+
+
+#######################################################################
+############## - ridge/lasso/elastic net - ############################
+#######################################################################
+
+# Data need to be a matrix for this part.
+explanatory_Variables = as.matrix(explanatory_Variables) 
+
+x.train <- explanatory_Variables[train_rows,]
+x.test <- explanatory_Variables[-train_rows,]
+y.train <- explained_Variables[train_rows]
+y.test <- explained_Variables[-train_rows]
+
+
+# We use a package that modulate the penalty. 
+# For the elastic net regression, the penalty can be a certain percentage of ridge and a percentage of lasso.
+# the alpha parameter represents this percentage : 
+# alpha = 0 --> it's a ridge regression
+# alpha = 1 --> it's a lasso regression
+# alpha = 0.8 --> it's 80% a lasso regression and 20% a ridge regression. Therefore it's likely an elastic net regression.
+
+
+
+
+############################
+###  - Ridge Regression- ###
+############################
+
+
+
+
+#The family is set to binomial because the explained variable is of a factor of 2 levels.
+Ridge.fit <- cv.glmnet(x.train, y.train, type.measure="mse", 
+                        alpha=0, family="binomial")
+
+
+# We can make predictions with the testing data
+Ridge.fit.predicted <- predict(Ridge.fit, s= "lambda.min",type = "class", newx=x.test)
+
+# We compare with the original ones
+table(Ridge.fit.predicted ,y.test )
+
+
+# We compute the confusion matrix:
+CM_Ridge=table(Ridge.fit.predicted ,y.test )
+confusionMatrix(CM_Ridge)
+
+
+
+### ROC  ### 
+glmnet_classifier <- cv.glmnet(x.train, y.train,
+                               family = 'binomial', 
+                               # L1 penalty
+                               alpha = 0,
+                               # interested in the area under ROC curve
+                               type.measure = "auc",
+                               # 5-fold cross-validation
+                               nfolds = 5,
+                               # high value is less accurate, but has faster training
+                               thresh = 1e-3,
+                               # again lower number of iterations for faster training
+                               maxit = 1e3)
+
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+
+# Calculate true positive rate and false positive rate on the prediction object
+perf <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+plot(perf, col=5 , lwd=2 , add=T)
+
+perf <- performance(prediction(preds, y.test), "auc")
+perf@y.values[[1]]
+
+
+
+
+
+
+
+############################
+###  - Lasso Regression- ###
+############################
+
+
+Lasso.fit <- cv.glmnet(x.train, y.train, type.measure="mse", 
+                       alpha=1, family="binomial")
+Lasso.fit.predicted <- predict(Lasso.fit, s= "lambda.min",type = "class", newx=x.test)
+table(Lasso.fit.predicted ,y.test )
+CM_Lasso=table(Lasso.fit.predicted ,y.test )
+confusionMatrix(CM_Lasso)
+
+### ROC  ### 
+glmnet_classifier <- cv.glmnet(x.train, y.train,
+                               family = 'binomial', 
+                               alpha = 1,
+                               type.measure = "auc",
+                               nfolds = 5,
+                               thresh = 1e-3,
+                               maxit = 1e3)
+
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+
+# Calculate true positive rate and false positive rate on the prediction object
+perf <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+plot(perf, col='#996600' , lwd=2, add = T)
+
+perf <- performance(prediction(preds, y.test), "auc")
+perf@y.values[[1]]
+
+
+
+
+
+
+
+
+############################
+######  -elastic net- ######
+############################
+
+
+
+#### which trade off is best ? ######
+
+
+
+RECORD=NULL
+
+ALPHA = seq(0,1,0.1)
+for(alpha in ALPHA){
+  glmnet_classifier <- cv.glmnet(x.train, y.train,
+                                 family = 'binomial', 
+                                 type.measure = "auc",
+                                 nfolds = 5,
+                                 thresh = 1e-3,
+                                 maxit = 1e3)
+  preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+  perf <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+
+  perf <- performance(prediction(preds, y.test), "auc")
+  a=perf@y.values[[1]]
+  
+  RECORD=cbind(RECORD, c(alpha,a))
+}
+
+
+RECORD
+#plot(ALPHA, RECORD[2,])
+
+
+# The best Alpha is : 
+best_alpha=RECORD[1,which.max(RECORD[,2])]
+
+
+
+
+
+glmnet_classifier <- cv.glmnet(x.train, y.train,
+                               family = 'binomial', 
+                               # L1 penalty
+                               alpha = best_alpha,
+                               # interested in the area under ROC curve
+                               type.measure = "auc",
+                               # 5-fold cross-validation
+                               nfolds = 5,
+                               # high value is less accurate, but has faster training
+                               thresh = 1e-3,
+                               # again lower number of iterations for faster training
+                               maxit = 1e3)
+
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+
+# Calculate true positive rate and false positive rate on the prediction object
+perf <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+plot(perf, col=9 , lwd=2, add = T)
+
+
+
+
+legend(0.6, 0.6, c('random forest', 'LDA' , 'ridge' , 'lasso', 'elastique net'), col=c(3,2,5,'#996600',9), lty=c(1,1,1,1,1) )
+
+
+
+if( max(RECORD[,2]) > lda_score){ print("the regression with penalty worked better than the lda")
+}else{"the lda worked better than the regression with penalty "}
+
