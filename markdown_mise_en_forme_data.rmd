@@ -1,0 +1,358 @@
+---
+title: "Species Distribution Modelling (SDM)"
+author: "BAREILLE Servane, BOURGADE Clément, PECHIERAS Florian"
+date: "07/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+setwd("C:/Users/serva/Google Drive/1-Partage Ordis/M2/Machine_learning/Projet")
+
+library(scales)
+library(robis)
+library(sp)
+library(rgdal)
+library(maptools)
+library(raster)
+#library(openxlsx)
+
+rm(list=ls());  # Removes variables from previous session
+graphics.off(); # Closes windows from previous session
+```
+
+
+The file must then present
+
+- An introduction describing the context of the study
+- A synthetic description of the approach/methodology used
+- The codes required to implement the methodology
+- The results presented in the form of tables and/or digital outputs and/or commented figures.
+- A conclusion synthesizing the results obtained and qq perspectives.
+
+
+
+
+
+# Context and project
+
+With global warming, our world is changing rapidly, and it has become important to predict potential future species distribution. To do so, a popular tool is used in quantitative ecology : **Species distribution modelling (SDM)**, also known as environmental (or ecological) niche modelling.  
+
+
+This work is inspired by an article written by **F. Ben Rais Lasarm et al. in 2020** available [here](https://www.sciencedirect.com/science/article/abs/pii/S1574954120300807). 
+In the same spirit, we decided to model the distribution of a marine species, Rainfords's butterflyfish (*Chaetodon rainfordi*) an iconic fish of the Great Barrier Reef. It endemic of the region and is on the IUCN Red List as Near Threatened (NT).
+
+```{r, echo=FALSE, fig.align='center', out.width = '30%'}
+knitr::include_graphics("Chaetodon_rainfordi.jpg") # picture
+```
+
+# Approach
+
+Three type of data were used to make the models :  
+    * Explained data  
+- **occurences data** (location and date of the fish observations) form OBIS (Ocean Biodiversity Information System)  
+    * Explanatory data  
+- **climate data** (temperature and salinity) from NOAA (National Oceanic and Atmospheric Administration)  
+- **habitat data** (geomorphic features and depth) from the australian government   
+
+The geomorphical data restricts our study zone. Indeed, few information were given and they are in a small zone of the Great Barrier Reef.  
+
+After data acquisition and processing, we will use several machine learning classification algorithm to model the species distribution thanks to the environmental data. Indeed, it is a classification issue, as we want to predict if a fish is susceptible to be observed or not at a specific geographical point.  
+
+After comparison of the model predicatability, we kept the best to predict a potential species distribution according to different climatic scenarii.  
+
+----
+
+# Importation and processing of the datasets
+
+## Occurence dataset
+
+Downloading of occurrences from OBIS.
+We only keep the columns coordinates and date of observation (to be able to collect the corresponding environmental data).
+
+```{r include = TRUE}
+OCC <- robis::occurrence(scientificname = "Chaetodon rainfordi" ) # Download, be carefull of the firewall
+if (dim(OCC)[1] > 0) {
+  OCC <- cbind(OCC[, c("decimalLongitude", "decimalLatitude", "date_year")])
+  names(OCC) <- c("longitude", "latitude", "year")
+}
+```
+
+We remove occurrences for which no date of observation is given, or if the observation was done before 1985 (not enough observation in these early decades) or after 2012 (no climate data available).
+
+```{r include = TRUE}
+OCC <- na.omit(OCC, cols='year')
+OCC <- OCC[-which(OCC$year<1985),]
+OCC <- OCC[-which(OCC$year>2012),]
+```
+
+Gathering of occurences by decades (climate data format)
+```{r include = TRUE}
+OCC$decade <- NA
+OCC$decade <- ifelse(OCC$year >= 1985 & OCC$year <= 1994, 1, OCC$decade)
+OCC$decade <- ifelse(OCC$year >= 1995 & OCC$year <= 2004, 2, OCC$decade)
+OCC$decade <- ifelse(OCC$year >= 2004 & OCC$year <= 2012, 3, OCC$decade)
+
+OCCd1 <- OCC[which(OCC$decade == 1),]
+OCCd2 <- OCC[which(OCC$decade == 2),]
+OCCd3 <- OCC[which(OCC$decade == 3),]
+```
+
+Importation of coordinates boundaries.
+These boundaries delimit our study zone for which we are able to get geomorphical information.
+```{r include = TRUE}
+boundaries <- readOGR( 
+  dsn= "3dgbr_geomorph/shape", 
+  layer = "qld_gbrwha_cscz",
+  verbose=FALSE)
+```
+
+We look if graphically some occurrences are situated outside the study zone. 
+```{r echo=FALSE, fig.align='center'}
+plot(OCC$longitude, OCC$latitude, ann=FALSE, xlim=c(120,155), ylim=c(-28,-14))
+par(new=T)
+plot(coordinates(boundaries)[[1]][[1]], ann=FALSE, pch=20, xlim=c(120,155), ylim=c(-28,-14))
+title(main = "Species occurences",
+      xlab = "Longitude", ylab = "Latitude")
+```
+
+Some occurences are situated outside the study zone : they are deleted.
+```{r include = TRUE}
+OCC <- OCC[-which(OCC$longitude<140),]
+OCC <- OCC[-which(OCC$latitude< -25),]
+```
+
+```{r echo=FALSE, fig.align='center'}
+plot(OCC$longitude, OCC$latitude, ann=FALSE, xlim=c(120,155), ylim=c(-28,-14))
+par(new=T)
+plot(coordinates(boundaries)[[1]][[1]], ann=FALSE, pch=20, xlim=c(120,155), ylim=c(-28,-14))
+title(main = "Species occurences",
+      xlab = "Longitude", ylab = "Latitude")
+```
+All occurences are in the study zone now.
+We now need to proceed the dataset to be manipulated.  
+
+As we said, we will use classification algorithm to model the species distribution. So, to calibrate our models, we need absence data to have two different groups.  
+The problem is that data like this are not established. We will create them artificially inside the study zone, but not to close to points where a fish has actually been observed.  
+
+## Pseudo absences creation 
+
+We want to observe the geographical distribution of occurences for the three decades studied.
+```{r echo=FALSE}
+plot(OCCd1$longitude, OCCd1$latitude, ann=FALSE, xlim=c(140,160), ylim=c(-25,-10), col='black')
+par(new=T)
+plot(OCCd2$longitude, OCCd2$latitude, ann=FALSE, xlim=c(140,160), ylim=c(-25,-10), col='blue')
+par(new=T)
+plot(OCCd3$longitude, OCCd3$latitude, ann=FALSE, xlim=c(140,160), ylim=c(-25,-10), col='red')
+title(main = "Species occurences for the three decades",
+      xlab = "Longitude", ylab = "Latitude")
+legend("top right", c("1985-1994","1995-2004", "2005-2012"), col=c("black","blue","red"), lwd=2)
+```
+
+We observe that each decades occurences are not far away from the previous ones. Moreover, we observe the widest geographical occurence zone is the one corresponding to the third decade.  
+So, we will use the occurences of the third decade to draw pseudo absence distant from them.  
+We will draw the same number of pseudo absence than the nomber of occurences in a decade. 
+
+First, we initiate coordinate boundaries of the study zone and the matrix of pseudo absences per decade. 
+```{r}
+coord_bnd <- coordinates(boundaries)[[1]][[1]]
+colnames(coord_bnd) <- c('longitude','latitude')
+coord_bnd_d3 <-as.data.frame(coord_bnd)
+
+absd1 <- matrix(as.numeric(NA), nrow = nrow(OCCd1), ncol = 2)
+absd2 <- matrix(as.numeric(NA), nrow = nrow(OCCd2), ncol = 2)
+absd3 <- matrix(as.numeric(NA), nrow = nrow(OCCd3), ncol = 2)
+```
+
+
+Then, we define the scope in which pseudo absences cannot be drawn (they cannot be too close to an occurence).  decide 
+
+# Les coordonnees sont des degres decimaux. 
+# Une variation a partir du 5eme chiffre apres la virgule correspond a une variation d'environ 1.11 m a l'equateur.
+# Dans un soucis de simplification, nous allons negliger la courbure de la Terre et considerer une variation constante 
+# dans la Grande Barriere de corail.
+
+# Rayon de la Terre : 6400 km
+# La Grande Barriere de corail se situe environ a 20 degres Sud
+# Rayon de la Terre dans le plan passant par la latitude 20 degres Sud et parallele au plan de l'equateur : 6400 * cos(20) = 6014 km
+# Le rapport entre la variation en metres entre la latitude a l'equateur et la latitude de la Grande Barriere de corail est : 6014/6400 = 0.93969
+# La variation au niveau de la Grande Barriere de corail est donc de 1.11 * 0.93969 = 1.04
+
+So, we define the minimal distance between occurences and pseudo absence
+```{r}
+lim = 1000/(100000 * 1.04)
+```
+
+# Pour simplifier le probleme, et avoir des temps de calcul raisonnables, nous allons considerer une zone geographique dans laquelle
+# nous allons effectuer les tirages des pseudos absences. Pour cela, on se base sur les coordonnees de la zone d'etude, a laquelle 
+# on supprimera les coordonnees aux limites qui correspondent a la zone des occcurrences. On remplacera alors ses coordonnees 
+# par des nouvelles en fonction des bordures de la zone des occurrences, et la distance minimale entre les pseudos absences 
+# et les occurrences.
+# Ainsi, la zone d'etude sera separee en 2: la zone des occurrences et la zone des tirages.
+
+# On isole les occurrences de la 3eme decennie qui ne sont pas dans la meme zone que les occurrences des 2 premieres decennies
+# (servira pour redefinir les bornes de la zone des occurrences)
+```{r}
+area_d3 <- OCCd3[which(OCCd3$longitude > 152 & OCCd3$latitude > -22),1:2]
+```
+
+Now we determine the zone for the drawing of pseudo absences
+```{r}
+# southern limit
+lim_south_d3 <- c(area_d3[which.max(area_d3$longitude),1], area_d3[which.max(area_d3$latitude),2])
+lim_south_d3[1] <- lim_south_d3[1] + lim
+lim_south_d3[2] <- lim_south_d3[2] + lim
+
+# extrem southern limit
+bound_south_d3 <- c(lim_south_d3[1], min(coord_bnd_d3$latitude))
+
+# northern limi
+lim_north_d3 <- as.numeric(OCCd1[which.max(OCCd1$latitude),1:2])
+
+# extreme northern limit
+bound_north_d3 <- c(min(coord_bnd_d3$longitude), lim_north_d3[2])
+```
+
+# Initialisation de la zone de tirage des pseudo absences en supprimant la partie des coordonnees limites correspondant a la zone des occurrences
+# pour les remplacer, et ainsi redefinir le trace des limites de la zone de tirage, en se basant sur la zone d'etude
+```{r}
+coord_bnd_d3 <- coord_bnd[-which(coord_bnd[,1] < bound_south_d3[1] & coord_bnd[,2] < lim_north_d3[2]),]
+```
+
+### Definition des nouvelles bordures (sud et diagonale) de la zone de tirage des pseudos absences
+
+### Definition de la bordure sud ###
+
+# Initialisation des latitudes des coordonnees de la bordure sud
+```{r}
+i <- bound_south_d3[2]
+j <- bound_south_d3[1]
+# ajout d'une bordure verticale (longitude fixe) entre la latitude de la limite extreme sud et celle de la limite sud
+while(i < lim_south_d3[2]){
+  i <- i + 0.01
+  coord_bnd_d3 <- rbind(coord_bnd_d3, c(j,i))
+}
+```
+#plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='red')
+
+### Definition de la bordure diagonale ###
+
+# on definit le pas de progression des longitudes en fonction du pas des latitudes et de l'ensemble de definition des latitudes
+```{r}
+# entre la limite sud et la limite nord
+S2_d3 <- seq(lim_south_d3[2], lim_north_d3[2], by = 0.01)
+pas2 <- (lim_south_d3[1] - lim_north_d3[1])/length(S2_d3)
+# Initialisation des latitudes et des longitudes des coordonnees de la bordure diagonale
+i <- lim_north_d3[1]
+j <- lim_north_d3[2]
+#ajout de la bordure diagonale entre la limite sud et la limite nord
+while(i < lim_south_d3[1]){
+  i <- i + pas2
+  j <- j - 0.01
+  coord_bnd_d3 <- rbind(coord_bnd_d3, c(i,j))
+}
+```
+#plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
+
+#definition de la zone de tirage des pseudos absences de la 3eme decennie
+```{r}
+Polys_d3 <- Polygon(coords = as.matrix(coord_bnd_d3, nrow = nrow(coord_bnd_d3), ncol = 2))
+```
+
+### Tirage aleatoire des pseudos absences pour chaque decennie
+
+
+# Tirage aleatoire des pseudos absences de la 1ere decennie :
+# il se trouve que parfois, certains points tires peuvent etre dans la zone des occurrences (et non plus la zone des pseudos absences).
+# On decide alors que tant que le point tire est dans la zone des poissons, on refait le tirage
+# les coordonnees des pseudos absences sont enregistrees
+```{r}
+for(i in 1:nrow(OCCd1)){
+  abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  while(point.in.polygon(coordinates(abs)[1], coordinates(abs)[2], c(bound_south_d3[1], lim_south_d3[1], lim_north_d3[1], bound_north_d3[1], bound_north_d3[1]), c(bound_south_d3[2], lim_south_d3[2], lim_north_d3[2], bound_north_d3[2], bound_south_d3[2])) == 1){
+    abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  }
+  absd1[i,] <- coordinates(abs)[1,]
+}
+
+plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
+par(new=T)
+plot(absd1, xlim=c(140,160), ylim=c(-25,-10), col='red')
+```
+# toutes les pseudo absences de la 1ere decennie sont dans la zone de tirage
+
+
+
+# Tirage aleatoire des pseudos absences de la 2eme decennie :
+# tant que le point tire est dans la zone des poissons, on refait le tirage.
+# Les coordonnees des pseudos absences sont enregistrees.
+```{r}
+for(i in 1:nrow(OCCd2)){
+  abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  while(point.in.polygon(coordinates(abs)[1], coordinates(abs)[2], c(bound_south_d3[1], lim_south_d3[1], lim_north_d3[1], bound_north_d3[1], bound_north_d3[1]), c(bound_south_d3[2], lim_south_d3[2], lim_north_d3[2], bound_north_d3[2], bound_south_d3[2])) == 1){
+    abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  }
+  absd2[i,] <- coordinates(abs)[1,]
+}
+
+plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
+par(new=T)
+plot(absd1, xlim=c(140,160), ylim=c(-25,-10), col='red')
+```
+# Toutes les pseudo absences de la 2eme decennie sont dans la zone de tirage.
+
+
+# Tirage aleatoire des pseudos absences de la 3eme decennie :
+# tant que le point tire est dans la zone des poissons, on refait le tirage.
+# Les coordonnees des pseudos absences sont enregistrees.
+```{r}
+for(i in 1:nrow(OCCd3)){
+  abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  while(point.in.polygon(coordinates(abs)[1], coordinates(abs)[2], c(bound_south_d3[1], lim_south_d3[1], lim_north_d3[1], bound_north_d3[1], bound_north_d3[1]), c(bound_south_d3[2], lim_south_d3[2], lim_north_d3[2], bound_north_d3[2], bound_south_d3[2])) == 1){
+    abs <- sample(spsample(Polys_d3,n=1,type="random", precision = 4))
+  }
+  absd3[i,] <- coordinates(abs)[1,]
+}
+
+plot(coord_bnd_d3, xlim=c(140,160), ylim=c(-25,-10), col='green')
+par(new=T)
+plot(absd3, xlim=c(140,160), ylim=c(-25,-10), col='red')
+```
+# Toutes les pseudos absences de la 3eme decennie sont dans la zone de tirage.
+
+#################################################################
+### Compilation des pseudos absences generes en un seul document
+#################################################################
+
+# Rassemblement des coordonnees des pseuods absences des 3 decennies
+```{r}
+ABS <- rbind(absd1,absd2,absd3)
+ABS <- data.frame(ABS)
+colnames(ABS) <- c('longitude', 'latitude')
+```
+
+# Ajout d'ue colonne presence remplie de 0 ou 1, correspondant respectivement aux pseudos absences et aux presences (occurences)
+```{r}
+OCC <- OCC[,-3]
+OCC$presence <- NA
+OCC$presence <- rep(1, nrow(OCC))
+ABS$decade <- NA
+ABS$decade <- OCC$decade
+ABS$presence <- NA
+ABS$presence <- rep(0, nrow(ABS))
+```
+
+# Fusion des absences et des occurrences pour ensuite analyser facilement les donnees
+```{r}
+DATA <- rbind(OCC, ABS)
+write.csv(DATA,"DATA.csv", row.names = TRUE) 
+```
+
+
+```{r include = TRUE}
+```
+
+```{r include = TRUE}
+```
+
+
+----
