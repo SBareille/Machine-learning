@@ -1,0 +1,343 @@
+---
+title: "MLB Partie ALGO"
+author: "moi"
+date: "15/12/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+
+```{r setup, include=FALSE , warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+download.file("http://sdm.dev-lab.net/DATA_PREANALYSE.csv",
+              destfile = "DATA_PREANALYSE.csv", mode = "wb")
+DATA <- read.table("DATA_PREANALYSE.csv", sep = ',', header = T)
+
+library(ggplot2)
+library(cowplot)
+library(randomForest)
+library(glmnet)
+library(pROC) 
+library(MASS)
+library(ROCR)
+library(lme4)
+library("caret")
+library('fastDummies')
+library('knitr')
+MATRIX = DATA[,-c(1,2,3,4,5,6)]
+
+summary(MATRIX)
+MATRIX[MATRIX$presence == 0,]$presence <- "abs"
+MATRIX[MATRIX$presence == 1,]$presence <- "pres"
+MATRIX[,1]=as.factor(MATRIX[,1])
+```
+
+
+# -Random Forest-
+
+
+Nous créons la random forest.
+Puis nous utilisons la ROC pour l'évaluer.
+
+```{r, echo=FALSE}
+model <- randomForest(presence~MATRIX[,1]+MATRIX[,2]+MATRIX[,3]+MATRIX[,4] , data = MATRIX, proximity=TRUE)
+```
+
+```{r, echo=FALSE, message=FALSE}
+par(pty = "s")
+roc(MATRIX$presence, model$vote[,1],col="#88CCFF", lwd=8 , plot=TRUE)
+```
+
+
+```{r, echo=FALSE}
+model$confusion
+
+```
+Conclusion: Cet algorithme marche très bien.
+
+# Predictions avec la Random forest.
+Les données sont séparés en deux sous-ensembles : l'un pour apprendre et l'autre pour tester.
+75% de la matrice initiale, aléatoirement séléctionné, sera utilisé pour la partie entrainement.
+Le reste (25%) servira pour la partie teste.
+
+
+```{r}
+n <- nrow(MATRIX)   # 8086: il y a 8086 lignes (et donc échantillons) au total.
+train_rows <- sample(1:n, round(0.75*n), replace = FALSE) 
+train=MATRIX[train_rows,]
+test = MATRIX[-train_rows,]
+model <- randomForest(presence~., train ,  mtry=2, importance=TRUE)
+predictions <- as.data.frame(predict(model, test, type = "prob"))
+forestpred = prediction(predictions[,2], test$presence)
+forestperf = performance(forestpred, 'tpr', 'fpr')
+plot(forestperf,  col = 3 , lwd = 2, main = 'ROC pour la random forest' )
+
+```
+```{r, echo=FALSE}
+predictions$predict <- names(predictions)[1:2][apply(predictions[,1:2], 1, which.max)]
+perf <- performance(prediction(predictions[,2], test$presence), "auc")
+rf_score=perf@y.values[[1]]
+
+```
+
+ L'AUC vaut : `r rf_score`
+
+# - LDA - 
+
+**1- data modification**
+
+
+La variable expliquée (présence / absence) est séparée du reste des données.
+Des dummies sont crées pour la variable explicatrice qualitative (le substrat océanique) et cette variables est ensuite supprimée. 
+
+```{r, echo=FALSE}
+
+explanatory_Variables=MATRIX[,c(2,3,4,5)] 
+explained_Variables=MATRIX[,1]
+explanatory_Variables=dummy_cols(explanatory_Variables)
+explanatory_Variables=explanatory_Variables[,-1]
+```
+```{r, message=FALSE}
+x.train <- explanatory_Variables[train_rows,]  #75% des Xs
+x.test <- explanatory_Variables[-train_rows,]  #25% des Xs
+
+y.train <- explained_Variables[train_rows]     #75% des Y 
+y.test <- explained_Variables[-train_rows]     #25% des Y
+```
+
+**2 - Performing a Linear Discriminant Analysis**
+
+
+Nous créons le model, puis nous l'utilisons pour prédire les présences/abscences des données de teste. Puis nous comparons les predictions avec les observations 
+```{r, warning=FALSE}
+lda_1 <- lda(x.train ,y.train)  # creation of the model. We use the training sub-dataset.
+pred_test = predict(lda_1 , x.test)$class   # We make predictions for the other sub-dataset
+table(pred_test , y.test,dnn = c("Predictions", "Observations")) 
+```
+
+**3 - ROC and AUC**
+
+```{r}
+lda.pred=predict(lda_1,x.test)
+pred <- prediction(lda.pred$posterior[,2],MATRIX[-train_rows,]$presence) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,col = 2, lwd= 2 , main = 'ROC pour la LDA' )
+```
+```{r, message = FALSE ,echo=FALSE}
+perf <- performance(pred, "auc")
+perf@y.values[[1]]
+lda_score = perf@y.values[[1]]
+```
+L'AUC vaut `r lda_score` c'est plus petit que pour la random forest
+
+Conclusion: Comparé à la random forest ce teste preforme moins bien pour prédire les présences / absences.
+
+
+
+
+
+#lda avec une validation croisée de MONTE CARLO.
+```{r}
+lda_fit <- lda(presence~.,data = MATRIX ,  CV = TRUE) 
+table(lda_fit$class , MATRIX$presence,dnn = c("Predictions", "Observations"))
+```
+
+
+# lda avec validation croisée de MONTE CARLO fait par nous-même.
+
+```{r, message=FALSE, warning=FALSE}
+Number_of_sample = nrow(MATRIX)                        
+Number_of_testing_sample = round(Number_of_sample/10) 
+Number_of_training_sample = Number_of_sample - Number_of_testing_sample  
+CONF_MATRICE = matrix(c(0), ncol = 2 , nrow = 2)
+number_of_loops = 10
+for (interation in 1:number_of_loops ){
+  Training_dataset_indexes = sample(seq(1:Number_of_sample) , Number_of_training_sample , replace =   TRUE) 
+  train = explanatory_Variables[Training_dataset_indexes,]    # certains sont des doublons
+  test = explanatory_Variables[-Training_dataset_indexes,]    # ceux qui n'ont pas été selectionnés 
+  lda_fit <- lda(train,MATRIX[Training_dataset_indexes,1] )  # entrainement
+PREDICTION = predict(lda_fit, test)$class   # prédictions
+OBSERVATIONS = MATRIX[-Training_dataset_indexes,1]  # données originelles
+  
+  CONF_MATRICE = CONF_MATRICE + table(PREDICTION , OBSERVATIONS)
+}
+CONF_MATRICE = CONF_MATRICE/number_of_loops
+CONF_MATRICE = CONF_MATRICE *100 / sum(CONF_MATRICE)
+```
+```{r}
+CONF_MATRICE # en pourcentage
+```
+
+# - ridge/lasso/elastic net - 
+
+```{r, echo=FALSE}
+# Data need to be a matrix for this part.
+explanatory_Variables = as.matrix(explanatory_Variables) 
+
+x.train <- explanatory_Variables[train_rows,]
+x.test <- explanatory_Variables[-train_rows,]
+y.train <- explained_Variables[train_rows]
+y.test <- explained_Variables[-train_rows]
+```
+Nous utilisons un Package qui module la pénalité.
+Pour l'elastic net regression, la pénalité peut être un certain pourcentage de ridge et un certain pourcentage de lasso.  
+Le parametre alpha represente se pourcentage.  
+ alpha = 0 --> ridge regression  
+ alpha = 1 --> lasso regression  
+ alpha = 0.8 --> 80% une lasso regression et 20% une ridge regression. De fait, c'est une elestic net regression.
+
+
+**Ridge Regression**
+
+```{r}
+Ridge.fit <- cv.glmnet(x.train, y.train, type.measure="mse", 
+                        alpha=0, family="binomial")
+
+Ridge.fit.predicted <- predict(Ridge.fit, s= "lambda.min",type = "class", newx=x.test)
+
+table(Ridge.fit.predicted ,y.test ,dnn = c("Predictions", "Observations"))
+```
+Des résultats suplémentaires peuvent être obtenues :
+```{r, echo= FALSE}
+# We compute the confusion matrix:
+CM_Ridge=table(Ridge.fit.predicted ,y.test )
+confusionMatrix(CM_Ridge)
+```
+
+
+```{r, echo= FALSE , message = FALSE}
+glmnet_classifier <- cv.glmnet(x.train, y.train,
+                               family = 'binomial', 
+                               # L1 penalty
+                               alpha = 0,
+                               # interested in the area under ROC curve
+                               type.measure = "auc",
+                               # 5-fold cross-validation
+                               nfolds = 5,
+                               # high value is less accurate, but has faster training
+                               thresh = 1e-3,
+                               # again lower number of iterations for faster training
+                               maxit = 1e3)
+
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+
+# Calculate true positive rate and false positive rate on the prediction object
+perfR <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+```
+```{r, echo= FALSE} 
+plot(perfR, col=5 , lwd=2 , main = 'ROC pour la Ridge Regression ' )
+```
+```{r, echo= FALSE, message = FALSE } 
+perfR <- performance(prediction(preds, y.test), "auc")
+```
+L'AUC vaut `r perfR@y.values[[1]]` c'est toujours plus petit que pour la random forest.
+
+
+
+**Lasso Regression**
+```{r, echo= FALSE, message=FALSE}
+Lasso.fit <- cv.glmnet(x.train, y.train, type.measure="mse", 
+                       alpha=1, family="binomial")
+Lasso.fit.predicted <- predict(Lasso.fit, s= "lambda.min",type = "class", newx=x.test)
+```
+matrice de confusion : 
+```{r,echo= FALSE}
+table(Lasso.fit.predicted ,y.test ,dnn = c("Predictions", "Observations"))
+```
+Informations complementaires
+```{r, echo= FALSE}
+CM_Lasso=table(Lasso.fit.predicted ,y.test )
+confusionMatrix(CM_Lasso)
+```
+
+
+```{r, echo= FALSE, message=FALSE}
+
+
+glmnet_classifier <- cv.glmnet(x.train, y.train,
+                               family = 'binomial', 
+                               alpha = 1,
+                               type.measure = "auc",
+                               nfolds = 5,
+                               thresh = 1e-3,
+                               maxit = 1e3)
+
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+```
+```{r, echo= FALSE}
+# Calculate true positive rate and false positive rate on the prediction object
+perfL <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+plot(perfL, col='#996600' , lwd=2, main = 'ROC pour la Lasso Regression ' )
+```
+```{r, echo= FALSE}
+perfL <- performance(prediction(preds, y.test), "auc")
+
+```
+
+L'AUC vaut `r perfL@y.values[[1]]` c'est toujours plus petit que pour la random forest.
+
+**elastic net**
+
+quelle est la meilleure pénalité ?
+
+
+```{r, echo= FALSE, message=FALSE}
+RECORD=NULL
+
+ALPHA = seq(0,1,0.1)
+for(alpha in ALPHA){
+  glmnet_classifier <- cv.glmnet(x.train, y.train,
+                                 family = 'binomial', 
+                                 type.measure = "auc",
+                                 nfolds = 5,
+                                 thresh = 1e-3,
+                                 maxit = 1e3)
+  preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+  perf <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+
+  perf <- performance(prediction(preds, y.test), "auc")
+  a=perf@y.values[[1]]
+  
+  RECORD=cbind(RECORD, c(alpha,a))
+}
+best_alpha=RECORD[1,which.max(RECORD[2,])]
+row.names(RECORD)=c('alpha','AUC')
+pourcentage = best_alpha*100
+```
+| alpha | AUC| 
+|-------|-------|
+| `r RECORD[1,1]` | `r RECORD[2,1] `| 
+| `r RECORD[1,2]` | `r RECORD[2,2] `| 
+| `r RECORD[1,3]` | `r RECORD[2,3] `| 
+| `r RECORD[1,4]` | `r RECORD[2,4] `| 
+| `r RECORD[1,5]` | `r RECORD[2,5] `| 
+| `r RECORD[1,6]` | `r RECORD[2,6] `| 
+| `r RECORD[1,7]` | `r RECORD[2,7] `| 
+| `r RECORD[1,8]` | `r RECORD[2,8] `| 
+| `r RECORD[1,9]` | `r RECORD[2,9] `| 
+| `r RECORD[1,10]` | `r RECORD[2,10] `| 
+| `r RECORD[1,11]` | `r RECORD[2,11] `| 
+
+Table: tableau des alpha et des AUC associés: 
+
+
+Le meilleur compromis, avec un AUC de `r max(RECORD[2,])` est donc : `r pourcentage` % de Lasso et `r 100-pourcentage`% Ridge  
+Voici le ROC associés
+
+```{r, echo= FALSE}
+glmnet_classifier <- cv.glmnet(x.train, y.train,family = 'binomial',alpha = best_alpha,type.measure = "auc",nfolds = 5, thresh = 1e-3, maxit = 1e3)
+preds <- predict(glmnet_classifier, newx = x.test, type = 'response')
+
+# Calculate true positive rate and false positive rate on the prediction object
+perfE <- performance(prediction(preds, y.test), 'tpr', 'fpr')
+plot(perfE, col=9 , lwd=2, main = 'ROC pour la elastic net Regression ' )
+```
+
+
+
+```{r, echo= FALSE}
+if( max(RECORD[2,]) > lda_score){ print("the regression with penalty worked better than the lda")
+}else{"the lda worked better than the regression with penalty "}
+```
