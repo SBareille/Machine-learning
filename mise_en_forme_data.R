@@ -144,7 +144,7 @@ lim = 1000/(100000 * 1.04) #on definit la distance minimale entre les occurrence
 
 
 # Pour simplifier le probleme, et avoir des temps de calcul raisonnables, nous allons considerer une zone geographique dans laquelle
-# nous allons effectuer les tirages des pseudos absences. # Pour cela, on se base sur la zone d'etude totale, de laquelle on retire 
+# nous allons effectuer les tirages des pseudos absences. Pour cela, on se base sur la zone d'etude totale, de laquelle on retire 
 # la zone des occurrences des poissons. Techniquement, on definit la zone de tirage des pseudos abscences en se basant sur les bordures 
 # de la zone d'etude totale, dans laquelle on integre les limites entre la zone des occurrences et la zone des pseudos abscences, en retirant 
 # la zone des occurrences. 
