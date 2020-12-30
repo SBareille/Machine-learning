@@ -144,11 +144,12 @@ lim = 1000/(100000 * 1.04) #on definit la distance minimale entre les occurrence
 
 
 # Pour simplifier le probleme, et avoir des temps de calcul raisonnables, nous allons considerer une zone geographique dans laquelle
-# nous allons effectuer les tirages des pseudos absences. Pour cela, on se base sur les coordonnees de la zone d'etude, a laquelle 
-# on supprimera les coordonnees aux limites qui correspondent a la zone des occcurrences. On remplacera alors ses coordonnees 
-# par des nouvelles en fonction des bordures de la zone des occurrences, et la distance minimale entre les pseudos absences 
-# et les occurrences.
-# Ainsi, la zone d'etude sera separee en 2: la zone des occurrences et la zone des tirages.
+# nous allons effectuer les tirages des pseudos absences. # Pour cela, on se base sur la zone d'etude totale, de laquelle on retire 
+# la zone des occurrences des poissons. Techniquement, on definit la zone de tirage des pseudos abscences en se basant sur les bordures 
+# de la zone d'etude totale, dans laquelle on integre les limites entre la zone des occurrences et la zone des pseudos abscences, en retirant 
+# la zone des occurrences. 
+# Ainsi, la zone d'etude totale est separee en 2: la zone des occurrences et la zone des tirages.
+
 
 
 #####################################################################
@@ -179,8 +180,9 @@ lim_north_d3 <- as.numeric(OCCd1[which.max(OCCd1$latitude),1:2])
 bound_north_d3 <- c(min(coord_bnd_d3$longitude), lim_north_d3[2])
 
 
-# Initialisation de la zone de tirage des pseudo absences en supprimant la partie des coordonnees limites correspondant a la zone des occurrences
-# pour les remplacer, et ainsi redefinir le trace des limites de la zone de tirage, en se basant sur la zone d'etude
+# Initialisation de la zone de tirage des pseudo absences :
+# On se base sur les bordures de la zone d'etude totale, desquelles on retire les coordonnees 
+# communes entre la zone des occurrences et la zone de tirage des pseudos abscences pour les remplacer.
 
 coord_bnd_d3 <- coord_bnd[-which(coord_bnd[,1] < bound_south_d3[1] & coord_bnd[,2] < lim_north_d3[2]),]
 
